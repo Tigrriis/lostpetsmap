@@ -127,6 +127,16 @@ class User(UserMixin, db.Model):
     # part of the email before the @, never the full address.
     display_name = db.Column(db.String(80), nullable=True)
 
+    # Email verification. The relay is the only way a finder reaches a reporter,
+    # so an address nobody owns quietly breaks the core of the service — and an
+    # unverified account is the cheap way to spam it. Actions that *reach other
+    # people* are gated on this; posting your own report is not, because a lost
+    # pet will not wait on an inbox.
+    email_verified = db.Column(db.Boolean, nullable=False, default=False,
+                               server_default=db.false())
+    email_verified_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    verification_sent_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
     role = db.Column(db.String(20), nullable=False, default=ROLE_USER, server_default=ROLE_USER)
     # db.false() rather than text("0"): SQLite accepts 0 for a boolean, Postgres
     # does not, and production is Postgres.

@@ -25,6 +25,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 import config
 from auth import auth_bp
 from extensions import csrf, db, login_manager, migrate
+import mailer
 from models import REPORT_TYPES, SPECIES, STATUSES
 from moderation import moderation_bp
 from pets import pets_bp
@@ -67,6 +68,10 @@ def _register_template_helpers(app: Flask) -> None:
     def inject_globals():
         return {
             "SITE_NAME": config.SITE_NAME,
+            # Templates hide the "confirm your email" prompts when there is no
+            # provider to send with — see auth.verified_required, which skips
+            # the gate for the same reason.
+            "MAIL_CONFIGURED": mailer.mail_is_configured(),
             "SPECIES": SPECIES,
             "REPORT_TYPES": REPORT_TYPES,
             "STATUSES": STATUSES,

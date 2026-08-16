@@ -94,6 +94,36 @@ If this wasn't you, ignore this email - your password is unchanged.
     )
 
 
+def mail_is_configured() -> bool:
+    """Is there a provider to actually send with?
+
+    Callers use this to avoid gating anything behind a verification email that
+    could never arrive — a lockout caused by a missing API key is far worse
+    than the spam the gate prevents.
+    """
+    return bool(config.RESEND_API_KEY)
+
+
+def send_email_verification(to: str, verify_url: str, ttl_hours: int) -> None:
+    """Confirm someone owns the address they signed up with."""
+    send_email(
+        to,
+        f"Confirm your email for {config.SITE_NAME}",
+        f"""
+Confirm this address so people can reach you about a pet.
+
+{verify_url}
+
+This link is good for {ttl_hours} hours. Until you use it you can still browse
+and post, but you won't be able to message anyone or log a sighting on someone
+else's report — and nobody can reach you through the site.
+
+If you didn't sign up, ignore this email. No account can be used from this
+address without opening the link above.
+""",
+    )
+
+
 def send_owner_message(to: str, pet_label: str, pet_url: str,
                        sender_email: str, message: str) -> None:
     """Relay a message from a finder to the person who filed a report.

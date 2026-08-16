@@ -42,6 +42,20 @@
     </nav>
   </header>
 
+  {% if current_user.is_authenticated and not current_user.email_verified and MAIL_CONFIGURED %}
+    <div class="verify-bar" role="status">
+      <span>
+        <strong>Confirm your email.</strong>
+        Until you do, nobody can reach you through the site and you can't message
+        anyone or log a sighting. Check {{ current_user.email }} — including spam.
+      </span>
+      <form method="post" action="{{ url_for('auth.resend_verification') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn--sm" type="submit">Send another link</button>
+      </form>
+    </div>
+  {% endif %}
+
   <div class="flashes" id="flashes">
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% for category, message in messages %}

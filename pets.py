@@ -37,7 +37,7 @@ from flask import (
 from flask_login import current_user, login_required
 from sqlalchemy import or_
 
-from auth import active_user_required
+from auth import active_user_required, verified_required
 from extensions import db
 from mailer import send_owner_message, send_sighting_alert
 from models import (
@@ -508,7 +508,7 @@ def sighting_photo(sighting_id: int):
 # ── Sightings ──────────────────────────────────────────────────────────────
 
 @pets_bp.route("/pets/<int:pet_id>/sightings", methods=["POST"])
-@active_user_required
+@verified_required
 def add_sighting(pet_id: int):
     pet = _get_pet_or_404(pet_id)
     cfg = current_app.config
@@ -577,7 +577,7 @@ def delete_sighting(sighting_id: int):
 # ── Contact relay ──────────────────────────────────────────────────────────
 
 @pets_bp.route("/pets/<int:pet_id>/contact", methods=["POST"])
-@active_user_required
+@verified_required
 def contact_reporter(pet_id: int):
     """Relay a message to whoever filed the report.
 

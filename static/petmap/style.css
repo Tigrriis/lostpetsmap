@@ -116,6 +116,21 @@ body { background: var(--paper); color: var(--ink-800); }
 }
 .site-footer a { color: var(--accent-ink); }
 
+/* Persistent until the address is confirmed — not a dismissible flash, since
+   an unverified account is quietly missing every message sent to it. */
+.verify-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+  padding: var(--sp-3) var(--sp-5);
+  background: var(--warn-soft);
+  border-bottom: 1px solid var(--warn);
+  font-size: var(--fs-2);
+}
+.verify-bar form { margin: 0; }
+
 /* ----------------------------------------------------------- FLASHES ----- */
 
 .flashes {

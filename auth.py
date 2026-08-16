@@ -7,18 +7,21 @@ the reset flow cannot be used to enumerate registered addresses.
 """
 import hashlib
 import hmac
+from datetime import datetime, timezone
 from functools import wraps
 from urllib.parse import urlparse
 
 from flask import (
-    Blueprint, abort, render_template, request, redirect, url_for, flash, current_app,
+    Blueprint, abort, current_app, flash, jsonify, redirect, render_template,
+    request, url_for,
 )
 from flask_login import login_user, logout_user, login_required, current_user
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from sqlalchemy import func
 
 from extensions import db
-from mailer import send_password_reset
+import mailer
+from mailer import send_email_verification, send_password_reset
 from models import ROLE_ADMIN, User
 
 auth_bp = Blueprint("auth", __name__)
@@ -26,6 +29,10 @@ auth_bp = Blueprint("auth", __name__)
 RESET_TTL_SECONDS = 3600
 RESET_SALT = "password-reset"
 MIN_PASSWORD_LEN = 8
+
+VERIFY_TTL_SECONDS = 48 * 3600
+VERIFY_SALT = "email-verify"
+VERIFY_RESEND_COOLDOWN_S = 60
 
 
 def _safe_next(target: str) -> bool:
@@ -94,12 +101,18 @@ def register():
                     "Bootstrapped %s as the site admin (first registered account).",
                     user.email)
 
+            send_verification(user)
+
             login_user(user)
             if promoted:
                 flash("Welcome — you're the first account here, so you're the site "
                       "admin. Moderation tools are in the top bar.", "success")
             else:
                 flash("Welcome. You can post a lost or found pet now.", "success")
+            if mailer.mail_is_configured():
+                flash(f"Confirm your email — we've sent a link to {user.email}. "
+                      "You can post straight away; confirming is what lets people "
+                      "reach you.", "info")
             nxt = request.args.get("next")
             return redirect(nxt if _safe_next(nxt) else url_for("map_page"))
     return render_template("register.html")
@@ -239,6 +252,87 @@ def reset_password(token: str):
     return render_template("reset_password.html", token=token)
 
 
+# ── Email verification ─────────────────────────────────────────────────────
+# Signed, like the reset token, so there is no table and nothing to clean up.
+# The address is baked into the token, which means a link minted for one email
+# cannot confirm a different one after the account changes it.
+
+def _verify_serializer() -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(current_app.config["SECRET_KEY"], salt=VERIFY_SALT)
+
+
+def _make_verify_token(user: User) -> str:
+    return _verify_serializer().dumps({"uid": user.id, "email": user.email})
+
+
+def _user_from_verify_token(token: str):
+    try:
+        data = _verify_serializer().loads(token, max_age=VERIFY_TTL_SECONDS)
+    except (BadSignature, SignatureExpired):
+        return None
+    if not isinstance(data, dict):
+        return None
+    user = db.session.get(User, data.get("uid"))
+    if user is None:
+        return None
+    if not hmac.compare_digest(str(data.get("email", "")), user.email):
+        return None            # address changed since the link was sent
+    return user
+
+
+def send_verification(user: User) -> bool:
+    """Mint and send a confirmation link. False if it was too soon to resend."""
+    now = datetime.now(timezone.utc)
+    last = user.verification_sent_at
+    if last is not None:
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
+        if (now - last).total_seconds() < VERIFY_RESEND_COOLDOWN_S:
+            return False
+
+    user.verification_sent_at = now
+    db.session.commit()
+    send_email_verification(
+        user.email,
+        url_for("auth.verify_email", token=_make_verify_token(user), _external=True),
+        VERIFY_TTL_SECONDS // 3600,
+    )
+    return True
+
+
+@auth_bp.route("/verify-email/<token>")
+def verify_email(token: str):
+    user = _user_from_verify_token(token)
+    if user is None:
+        flash("That confirmation link is invalid or has expired. "
+              "Sign in and request another.", "error")
+        return redirect(url_for("auth.login"))
+
+    if not user.email_verified:
+        user.email_verified = True
+        user.email_verified_at = datetime.now(timezone.utc)
+        db.session.commit()
+
+    # Confirming from the link is proof of address, so it is also a reasonable
+    # moment to sign them in — it saves a step on the phone they opened it on.
+    if not current_user.is_authenticated:
+        login_user(user)
+    flash("Email confirmed. You can message people and log sightings now.", "success")
+    return redirect(url_for("map_page"))
+
+
+@auth_bp.route("/resend-verification", methods=["POST"])
+@login_required
+def resend_verification():
+    if current_user.email_verified:
+        flash("That address is already confirmed.", "info")
+    elif send_verification(current_user):
+        flash(f"Confirmation link sent to {current_user.email}.", "success")
+    else:
+        flash("A link went out moments ago — check your inbox and spam folder.", "info")
+    return redirect(request.referrer or url_for("auth.account"))
+
+
 # ── Guards ─────────────────────────────────────────────────────────────────
 
 def active_user_required(view):
@@ -253,6 +347,31 @@ def active_user_required(view):
         if current_user.is_banned:
             flash("This account has been suspended.", "error")
             return redirect(url_for("map_page"))
+        return view(*args, **kwargs)
+    return wrapped
+
+
+def verified_required(view):
+    """Logged in, not banned, and holding a confirmed email address.
+
+    For actions that put a message in somebody else's inbox. Posting your own
+    report is deliberately *not* gated: someone whose dog is out on a road
+    should not be waiting on an email round trip.
+
+    Skipped entirely when no mail provider is configured. Otherwise a missing
+    RESEND_API_KEY would lock every account out of these actions with no way to
+    verify, which is a far worse failure than the spam this prevents.
+    """
+    @wraps(view)
+    @active_user_required
+    def wrapped(*args, **kwargs):
+        if mailer.mail_is_configured() and not current_user.email_verified:
+            message = ("Confirm your email address first — that's how people reach "
+                       "you. Check your inbox, or request a new link from your account.")
+            if request.path.startswith("/api/") or request.is_json:
+                return jsonify({"error": message}), 403
+            flash(message, "error")
+            return redirect(request.referrer or url_for("auth.account"))
         return view(*args, **kwargs)
     return wrapped
 

@@ -113,8 +113,25 @@ dashboard (they are all marked `sync: false`, so nothing secret is in the repo):
 | `SECRET_KEY` | auto-generated | — |
 | `DATABASE_URL` | from the blueprint | — |
 | `GOOGLE_MAPS_API_KEY` | optional | The address box says so; the pin still works. |
-| `RESEND_API_KEY` | **yes, in practice** | Password resets and sighting alerts go to the log, not the user. |
+| `RESEND_API_KEY` | **yes, in practice** | Password resets, sighting alerts, the contact relay and email verification all go to the log instead of the user — and the verification gate switches itself off, since nobody could pass it. |
 | `MAIL_FROM` | with Resend | Must be on a domain verified in Resend. |
+
+### Email
+
+Nothing about the mail code needs changing to turn it on: set `RESEND_API_KEY`
+and `MAIL_FROM` in the Render dashboard and every message starts sending. Until
+then `mailer.send_email` writes the message to the log — which is how you test
+the reset and verification links locally, since the link is in the log line.
+
+`MAIL_FROM` must be on a domain verified in Resend. The default `resend.dev`
+sender only delivers to the Resend account owner's own address, which looks
+like working email right up until someone else signs up.
+
+**Verification gates the actions that reach other people** — the contact relay
+and sightings — but never posting your own report, because a pet on a road will
+not wait for an email round trip. The gate is skipped entirely when no provider
+is configured (`auth.verified_required`), so a missing API key degrades to "no
+verification" rather than locking every account out of a check it cannot pass.
 
 `MAIL_FROM` on the default `resend.dev` sender only delivers to the Resend
 account owner, which is fine for a smoke test and useless in production.
