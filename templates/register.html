@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Create an account · {{ SITE_NAME }}{% endblock %}
+{% block main_class %}page page--narrow{% endblock %}
+
+{% block content %}
+<div class="auth-card panel">
+  <div class="panel__head"><span class="panel__title">Create an account</span></div>
+  <div class="panel__body">
+    <p class="muted">
+      You only need an account to post a report, log a sighting, or message someone.
+      Browsing the map needs nothing.
+    </p>
+    <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="field">
+        <label class="field-label" for="email">Email</label>
+        <input class="input" type="email" id="email" name="email" required autocomplete="email" autofocus>
+        <p class="field-hint">Never shown on the site. Used for sighting alerts and messages.</p>
+      </div>
+      <div class="field">
+        <label class="field-label" for="display_name">Display name (optional)</label>
+        <input class="input" type="text" id="display_name" name="display_name" maxlength="80"
+               autocomplete="nickname" placeholder="e.g. Sam">
+        <p class="field-hint">Shown on your reports. Leave blank and we'll use the part before the @.</p>
+      </div>
+      <div class="field">
+        <label class="field-label" for="password">Password</label>
+        <input class="input" type="password" id="password" name="password" required
+               minlength="8" autocomplete="new-password">
+        <p class="field-hint">At least 8 characters.</p>
+      </div>
+      <button class="btn btn--primary btn--block" type="submit">Create account</button>
+    </form>
+    <p class="auth-alt">Already registered? <a href="{{ url_for('auth.login') }}">Sign in</a></p>
+  </div>
+</div>
+{% endblock %}

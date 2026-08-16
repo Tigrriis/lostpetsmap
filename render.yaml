@@ -1,0 +1,48 @@
+databases:
+  - name: petmap-db
+    plan: free
+    databaseName: petmap
+    user: petmap
+
+services:
+  - type: web
+    name: petmap
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    # bootstrap_db.py applies migrations before traffic is served. It runs here
+    # rather than in buildCommand because the build step has no guarantee of a
+    # DATABASE_URL.
+    #
+    # Two workers with threads: this app is I/O-bound (database, Google, Resend)
+    # and holds no per-process state — unlike the pavement module in the AS3500
+    # service, which is why that one is pinned to a single worker.
+    startCommand: python bootstrap_db.py && gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 60
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.4"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: SESSION_COOKIE_SECURE
+        value: "1"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: petmap-db
+          property: connectionString
+
+      # ── Set these in the Render dashboard; never commit them ──
+      #
+      # Optional. Without it the "find an address" box says so and the map pin
+      # still works — nothing else depends on it.
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+      # Resend. Without RESEND_API_KEY, password resets and sighting alerts are
+      # written to the log instead of sent — fine for a smoke test, not for
+      # production. MAIL_FROM must be on a domain verified in Resend.
+      - key: RESEND_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: SITE_NAME
+        value: PetMap Tasmania

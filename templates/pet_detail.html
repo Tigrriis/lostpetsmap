@@ -1,0 +1,279 @@
+{% extends "base.html" %}
+{% block title %}{{ pet.label }} · {{ SITE_NAME }}{% endblock %}
+{% block description %}{{ pet.label }}{% if pet.locality %} near {{ pet.locality }}{% endif %}, last seen {{ pet.last_seen_at | localdate }}. {{ pet.description[:140] if pet.description }}{% endblock %}
+
+{% block head_links %}
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+{% endblock %}
+
+{% block content %}
+<article class="detail">
+
+  {% if pet.is_removed %}
+    <div class="banner banner--danger">
+      This report has been removed{% if pet.removed_reason %}: {{ pet.removed_reason }}{% endif %}.
+      Only moderators can see it.
+    </div>
+  {% endif %}
+
+  <header class="detail__head">
+    <div>
+      <div class="badges">
+        <span class="tag tag--{{ 'danger' if pet.report_type == 'missing' else 'accent' }}">
+          {{ REPORT_TYPES[pet.report_type] }}
+        </span>
+        <span class="tag">{{ species_label }}</span>
+        {% if pet.status == 'reunited' %}
+          <span class="tag tag--ok">Reunited</span>
+        {% elif pet.status == 'closed' %}
+          <span class="tag">Closed</span>
+        {% endif %}
+      </div>
+      <h1>
+        {% if pet.name %}{{ pet.name }}{% else %}{{ REPORT_TYPES[pet.report_type] }} {{ species_label|lower }}{% endif %}
+      </h1>
+      <p class="detail__sub">
+        Last seen {{ pet.last_seen_at | localtime }}
+        <span class="muted">({{ pet.last_seen_at | ago }})</span>
+        {% if pet.locality %} · {{ pet.locality }}{% endif %}
+      </p>
+    </div>
+
+    {% if can_edit %}
+      <div class="detail__owner-actions">
+        <a class="btn btn--ghost btn--sm" href="{{ url_for('pets.edit_pet', pet_id=pet.id) }}">Edit</a>
+        {% if pet.status == 'active' %}
+          <form method="post" action="{{ url_for('pets.set_status', pet_id=pet.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="status" value="reunited">
+            <button class="btn btn--primary btn--sm" type="submit">Mark reunited</button>
+          </form>
+        {% else %}
+          <form method="post" action="{{ url_for('pets.set_status', pet_id=pet.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="status" value="active">
+            <button class="btn btn--ghost btn--sm" type="submit">Reopen</button>
+          </form>
+        {% endif %}
+        <form method="post" action="{{ url_for('pets.delete_pet', pet_id=pet.id) }}"
+              data-confirm="Remove this report? It disappears from the map.">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn btn--danger btn--sm" type="submit">Remove</button>
+        </form>
+      </div>
+    {% endif %}
+  </header>
+
+  {% if pet.status == 'reunited' %}
+    <div class="banner banner--ok">Home safe. This report is kept for the record.</div>
+  {% endif %}
+
+  <div class="detail__grid">
+
+    <!-- ── Photos ─────────────────────────────────────────────────────── -->
+    <section class="detail__photos">
+      {% if pet.photos %}
+        <img class="detail__hero" id="hero-photo"
+             src="{{ url_for('pets.pet_photo', pet_id=pet.id, photo_id=pet.photos[0].id) }}"
+             alt="{{ pet.name or species_label }}">
+        {% if pet.photos|length > 1 %}
+          <div class="photo-strip">
+            {% for photo in pet.photos %}
+              <button type="button" class="photo-strip__thumb"
+                      data-full="{{ url_for('pets.pet_photo', pet_id=pet.id, photo_id=photo.id) }}">
+                <img src="{{ url_for('pets.pet_photo', pet_id=pet.id, photo_id=photo.id, size='thumb') }}"
+                     alt="Photo {{ loop.index }}">
+              </button>
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% else %}
+        <div class="detail__nophoto">No photo on this report.</div>
+      {% endif %}
+    </section>
+
+    <!-- ── Details ────────────────────────────────────────────────────── -->
+    <section class="detail__facts panel">
+      <div class="panel__head"><span class="panel__title">Details</span></div>
+      <div class="panel__body">
+        <dl class="facts">
+          <dt>Animal</dt><dd>{{ species_label }}</dd>
+          {% if pet.breed %}<dt>Breed</dt><dd>{{ pet.breed }}</dd>{% endif %}
+          {% if pet.colour %}<dt>Colour</dt><dd>{{ pet.colour }}</dd>{% endif %}
+          <dt>Sex</dt><dd>{{ sex_label }}</dd>
+          {% if size_label %}<dt>Size</dt><dd>{{ size_label }}</dd>{% endif %}
+          <dt>Microchip</dt><dd>{{ chip_label }}</dd>
+          {% if pet.collar %}<dt>Collar</dt><dd>{{ pet.collar }}</dd>{% endif %}
+          <dt>Posted</dt><dd>{{ pet.created_at | localdate }} by {{ pet.reporter.public_name }}</dd>
+        </dl>
+
+        {% if pet.description %}
+          <p class="detail__desc">{{ pet.description }}</p>
+        {% endif %}
+
+        {% if pet.show_phone and pet.contact_phone %}
+          <p class="detail__phone">
+            <span class="field-label">Phone</span>
+            <a href="tel:{{ pet.contact_phone | replace(' ', '') }}">{{ pet.contact_phone }}</a>
+          </p>
+        {% endif %}
+      </div>
+    </section>
+  </div>
+
+  <!-- ── Map ──────────────────────────────────────────────────────────── -->
+  <section class="panel">
+    <div class="panel__head">
+      <span class="panel__title">
+        {{ "Last seen here" if pet.report_type == 'missing' else "Found here" }}
+      </span>
+      {% if pet.blur_location and not exact %}
+        <span class="tag tag--warn">Approximate</span>
+      {% elif pet.blur_location and exact %}
+        <span class="tag tag--accent">Exact — public map shows it blurred</span>
+      {% endif %}
+    </div>
+    <div class="panel__body">
+      <div id="detail-map" class="detail-map" role="application" aria-label="Location map"></div>
+      {% if pet.blur_location and not exact %}
+        <p class="field-hint">
+          Shown within a few hundred metres of the real spot, to protect the address.
+          Log a sighting or message the owner for specifics.
+        </p>
+      {% endif %}
+    </div>
+  </section>
+
+  <!-- ── Sightings ────────────────────────────────────────────────────── -->
+  <section class="panel">
+    <div class="panel__head">
+      <span class="panel__title">Sightings</span>
+      <span class="tag">{{ sightings|length }}</span>
+    </div>
+    <div class="panel__body">
+      {% if sightings %}
+        <ol class="sightings">
+          {% for s in sightings %}
+            <li class="sighting">
+              <div class="sighting__when">
+                {{ s.seen_at | localtime }} <span class="muted">({{ s.seen_at | ago }})</span>
+              </div>
+              {% if s.note %}<p class="sighting__note">{{ s.note }}</p>{% endif %}
+              {% if s.has_photo %}
+                <img class="sighting__photo"
+                     src="{{ url_for('pets.sighting_photo', sighting_id=s.id) }}"
+                     alt="Sighting photo">
+              {% endif %}
+              <div class="sighting__meta">
+                by {{ s.reporter.public_name }}
+                {% if current_user.is_authenticated and (current_user.id == s.user_id
+                       or current_user.id == pet.user_id or current_user.is_moderator) %}
+                  <form method="post" action="{{ url_for('pets.delete_sighting', sighting_id=s.id) }}"
+                        data-confirm="Remove this sighting?">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn-link" type="submit">remove</button>
+                  </form>
+                {% endif %}
+              </div>
+            </li>
+          {% endfor %}
+        </ol>
+      {% else %}
+        <p class="muted">No sightings logged yet.</p>
+      {% endif %}
+
+      {% if current_user.is_authenticated and pet.status == 'active' %}
+        <details class="disclosure" {{ "open" if not sightings }}>
+          <summary>I've seen this animal</summary>
+          <form method="post" enctype="multipart/form-data" id="sighting-form"
+                action="{{ url_for('pets.add_sighting', pet_id=pet.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="form-grid">
+              <div class="field">
+                <label class="field-label" for="seen_at">When <span class="req">*</span></label>
+                <input class="input" type="datetime-local" id="seen_at" name="seen_at" required>
+              </div>
+              <div class="field">
+                <label class="field-label" for="sighting-photo">Photo (optional)</label>
+                <input class="input" type="file" id="sighting-photo" name="photo" accept="image/*">
+              </div>
+            </div>
+            <div class="field">
+              <label class="field-label" for="note">What you saw</label>
+              <textarea class="input" id="note" name="note" rows="3" maxlength="1000"
+                        placeholder="Direction they were heading, whether they'd come to you, condition…"></textarea>
+            </div>
+            <div class="field">
+              <span class="field-label">Where <span class="req">*</span></span>
+              <div id="sighting-map" class="pin-map" role="application"
+                   aria-label="Click to set where you saw the animal"></div>
+              <p class="pin-readout" id="sighting-readout">Click the map to place your sighting.</p>
+              <input type="hidden" name="lat" id="sighting-lat">
+              <input type="hidden" name="lng" id="sighting-lng">
+            </div>
+            <button class="btn btn--primary" type="submit">Log sighting</button>
+            <p class="field-hint">
+              The person who posted this gets an email straight away, with the exact spot.
+            </p>
+          </form>
+        </details>
+      {% elif not current_user.is_authenticated %}
+        <p class="muted">
+          <a href="{{ url_for('auth.login', next=request.path) }}">Sign in</a> to log a sighting
+          or message the owner.
+        </p>
+      {% endif %}
+    </div>
+  </section>
+
+  <!-- ── Contact ──────────────────────────────────────────────────────── -->
+  {% if current_user.is_authenticated and current_user.id != pet.user_id and not pet.is_removed %}
+    <section class="panel">
+      <div class="panel__head"><span class="panel__title">Message the person who posted this</span></div>
+      <div class="panel__body">
+        <form method="post" action="{{ url_for('pets.contact_reporter', pet_id=pet.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="field">
+            <label class="field-label" for="message">Your message</label>
+            <textarea class="input" id="message" name="message" rows="4" required
+                      minlength="10" maxlength="2000"
+                      placeholder="Where and when you saw them, and what you noticed."></textarea>
+            <p class="field-hint">
+              Sent to their inbox. They see your email address ({{ current_user.email }})
+              so they can reply — nobody else does.
+            </p>
+          </div>
+          <button class="btn btn--primary" type="submit">Send message</button>
+        </form>
+      </div>
+    </section>
+  {% endif %}
+
+  <p class="detail__footnote">
+    Be careful with anyone who asks for money to return a pet.
+    <a href="{{ url_for('safety') }}">What to watch for →</a>
+  </p>
+
+</article>
+{% endblock %}
+
+{% block scripts %}
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script>
+    window.PETMAP_DETAIL = {
+      lat: {{ lat }},
+      lng: {{ lng }},
+      approximate: {{ (pet.blur_location and not exact) | tojson }},
+      reportType: {{ pet.report_type | tojson }},
+      bounds: {{ bounds | tojson }},
+      sightings: [
+        {% for s in sightings %}
+          {lat: {{ s.lat }}, lng: {{ s.lng }}, when: {{ (s.seen_at | localtime) | tojson }}},
+        {% endfor %}
+      ]
+    };
+  </script>
+  <script src="{{ url_for('static', filename='petmap/pet_detail.js') }}"></script>
+{% endblock %}

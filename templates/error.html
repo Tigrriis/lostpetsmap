@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}{{ code }} · {{ SITE_NAME }}{% endblock %}
+{% block main_class %}page page--narrow{% endblock %}
+
+{% block content %}
+<div class="empty">
+  <p class="error-code">{{ code }}</p>
+  <p>{{ message }}</p>
+  <a class="btn btn--primary" href="{{ url_for('map_page') }}">Back to the map</a>
+</div>
+{% endblock %}

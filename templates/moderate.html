@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block title %}Moderation · {{ SITE_NAME }}{% endblock %}
+
+{% macro reason_form(action, label, klass="btn--danger") %}
+  <form method="post" action="{{ action }}" class="inline-form"
+        data-confirm="{{ label }}?">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input class="input input--sm" type="text" name="reason" placeholder="Reason" maxlength="500">
+    <button class="btn {{ klass }} btn--sm" type="submit">{{ label }}</button>
+  </form>
+{% endmacro %}
+
+{% macro plain_form(action, label, klass="btn--ghost", confirm=None) %}
+  <form method="post" action="{{ action }}" class="inline-form"
+        {% if confirm %}data-confirm="{{ confirm }}"{% endif %}>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="btn {{ klass }} btn--sm" type="submit">{{ label }}</button>
+  </form>
+{% endmacro %}
+
+{% block content %}
+<header class="page-head">
+  <h1>Moderation</h1>
+</header>
+
+<nav class="tabs">
+  {% for key, label in [('reports','Live reports'), ('removed','Removed'),
+                        ('sightings','Sightings'), ('messages','Messages'), ('users','Accounts')] %}
+    <a class="tab {{ 'is-active' if view == key }}"
+       href="{{ url_for('moderation.queue', view=key) }}">{{ label }}</a>
+  {% endfor %}
+</nav>
+
+{% if pets is not none %}
+  <table class="data-table">
+    <thead>
+      <tr><th>#</th><th>Report</th><th>Where</th><th>Posted by</th><th>When</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for pet in pets %}
+        <tr>
+          <td>{{ pet.id }}</td>
+          <td>
+            <a href="{{ url_for('pets.pet_detail', pet_id=pet.id) }}">
+              {{ REPORT_TYPES[pet.report_type] }} {{ SPECIES[pet.species]|lower }}
+              {%- if pet.name %} — {{ pet.name }}{% endif %}
+            </a>
+          </td>
+          <td>{{ pet.locality or '—' }}</td>
+          <td>{{ pet.reporter.email }}</td>
+          <td>{{ pet.created_at | localdate }}</td>
+          <td class="row-actions">
+            {% if view == 'removed' %}
+              {{ plain_form(url_for('moderation.restore_pet', pet_id=pet.id), 'Restore', 'btn--primary') }}
+              <span class="muted">{{ pet.removed_reason }}</span>
+            {% else %}
+              {{ reason_form(url_for('moderation.remove_pet', pet_id=pet.id), 'Remove') }}
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="muted">Nothing here.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endif %}
+
+{% if sightings is not none %}
+  <table class="data-table">
+    <thead><tr><th>#</th><th>On report</th><th>Note</th><th>By</th><th>When</th><th></th></tr></thead>
+    <tbody>
+      {% for s in sightings %}
+        <tr class="{{ 'is-removed' if s.is_removed }}">
+          <td>{{ s.id }}</td>
+          <td><a href="{{ url_for('pets.pet_detail', pet_id=s.pet_id) }}">#{{ s.pet_id }}</a></td>
+          <td class="cell-clip">{{ s.note or '—' }}</td>
+          <td>{{ s.reporter.email }}</td>
+          <td>{{ s.created_at | localdate }}</td>
+          <td class="row-actions">
+            {% if s.is_removed %}
+              {{ plain_form(url_for('moderation.restore_sighting', sighting_id=s.id), 'Restore', 'btn--primary') }}
+            {% else %}
+              {{ reason_form(url_for('moderation.remove_sighting', sighting_id=s.id), 'Remove') }}
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="muted">Nothing here.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endif %}
+
+{% if messages is not none %}
+  <p class="muted">
+    Relayed messages are logged so abuse can be traced. Read them only when investigating
+    a complaint.
+  </p>
+  <table class="data-table">
+    <thead><tr><th>When</th><th>From</th><th>About</th><th>Message</th></tr></thead>
+    <tbody>
+      {% for m in messages %}
+        <tr>
+          <td>{{ m.created_at | localdate }}</td>
+          <td>{{ m.sender.email }}</td>
+          <td><a href="{{ url_for('pets.pet_detail', pet_id=m.pet_id) }}">#{{ m.pet_id }}</a></td>
+          <td class="cell-clip">{{ m.body }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4" class="muted">Nothing here.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endif %}
+
+{% if users is not none %}
+  <table class="data-table">
+    <thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Reports</th><th>Joined</th><th></th></tr></thead>
+    <tbody>
+      {% for u in users %}
+        <tr class="{{ 'is-removed' if u.is_banned }}">
+          <td>{{ u.email }}</td>
+          <td>{{ u.display_name or '—' }}</td>
+          <td>
+            <span class="tag {{ 'tag--accent' if u.role != 'user' }}">{{ u.role }}</span>
+            {% if u.is_banned %}<span class="tag tag--danger">suspended</span>{% endif %}
+          </td>
+          <td>{{ u.pets.filter_by(is_removed=False).count() }}</td>
+          <td>{{ u.created_at | localdate }}</td>
+          <td class="row-actions">
+            {% if u.id != current_user.id %}
+              {% if u.is_banned %}
+                {{ plain_form(url_for('moderation.unban_user', user_id=u.id), 'Reinstate', 'btn--primary') }}
+              {% else %}
+                {{ plain_form(url_for('moderation.ban_user', user_id=u.id), 'Suspend', 'btn--danger',
+                              'Suspend ' ~ u.email ~ '?') }}
+              {% endif %}
+              {{ reason_form(url_for('moderation.remove_user_reports', user_id=u.id), 'Remove all') }}
+              {% if current_user.is_admin %}
+                <form method="post" action="{{ url_for('moderation.set_role', user_id=u.id) }}"
+                      class="inline-form">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <select class="input input--sm" name="role">
+                    {% for r in ['user', 'moderator', 'admin'] %}
+                      <option value="{{ r }}" {{ 'selected' if u.role == r }}>{{ r }}</option>
+                    {% endfor %}
+                  </select>
+                  <button class="btn btn--ghost btn--sm" type="submit">Set role</button>
+                </form>
+              {% endif %}
+            {% else %}
+              <span class="muted">that's you</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endif %}
+{% endblock %}

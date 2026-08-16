@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Your reports · {{ SITE_NAME }}{% endblock %}
+
+{% block content %}
+<header class="page-head">
+  <h1>Your reports</h1>
+  <a class="btn btn--primary" href="{{ url_for('pets.new_pet') }}">+ Report a pet</a>
+</header>
+
+{% if pets %}
+  <ul class="report-list">
+    {% for pet in pets %}
+      <li class="report-card">
+        <a class="report-card__photo" href="{{ url_for('pets.pet_detail', pet_id=pet.id) }}">
+          {% if pet.primary_photo %}
+            <img src="{{ url_for('pets.pet_photo', pet_id=pet.id, photo_id=pet.primary_photo.id, size='thumb') }}"
+                 alt="">
+          {% else %}
+            <span class="report-card__nophoto">no photo</span>
+          {% endif %}
+        </a>
+        <div class="report-card__body">
+          <div class="badges">
+            <span class="tag tag--{{ 'danger' if pet.report_type == 'missing' else 'accent' }}">
+              {{ report_types[pet.report_type] }}
+            </span>
+            <span class="tag">{{ species[pet.species] }}</span>
+            {% if pet.status != 'active' %}
+              <span class="tag tag--{{ 'ok' if pet.status == 'reunited' else '' }}">
+                {{ statuses[pet.status] }}
+              </span>
+            {% endif %}
+          </div>
+          <a class="report-card__title" href="{{ url_for('pets.pet_detail', pet_id=pet.id) }}">
+            {% if pet.name %}{{ pet.name }}{% else %}{{ species[pet.species] }}{% endif %}
+            {%- if pet.locality %} · {{ pet.locality }}{% endif %}
+          </a>
+          <p class="report-card__meta">
+            Last seen {{ pet.last_seen_at | localdate }} ({{ pet.last_seen_at | ago }})
+            · {{ pet.visible_sightings().count() }} sighting(s)
+          </p>
+        </div>
+        <div class="report-card__actions">
+          <a class="btn btn--ghost btn--sm" href="{{ url_for('pets.edit_pet', pet_id=pet.id) }}">Edit</a>
+          {% if pet.status == 'active' %}
+            <form method="post" action="{{ url_for('pets.set_status', pet_id=pet.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="status" value="reunited">
+              <button class="btn btn--primary btn--sm" type="submit">Reunited</button>
+            </form>
+          {% endif %}
+        </div>
+      </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  <div class="empty">
+    <p>You haven't posted anything yet.</p>
+    <a class="btn btn--primary" href="{{ url_for('pets.new_pet') }}">Report a lost or found pet</a>
+  </div>
+{% endif %}
+{% endblock %}

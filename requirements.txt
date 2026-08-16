@@ -1,0 +1,19 @@
+flask>=3.0
+gunicorn>=21.2
+flask-sqlalchemy>=3.1
+flask-login>=0.6
+flask-migrate>=4.0
+Flask-WTF>=1.2
+psycopg2-binary>=2.9
+python-dotenv>=1.0
+
+# Photos are resized before they go in the database; see services/images.py.
+Pillow>=10.4
+
+# Google Geocoding, for the optional "find an address" box on the report form.
+requests>=2.32
+
+# zoneinfo needs the IANA database, which Windows does not ship. Harmless on
+# Render (Linux has it) but required for local development to agree with
+# production about what "Australia/Hobart" means.
+tzdata>=2024.1

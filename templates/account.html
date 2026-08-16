@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Your account · {{ SITE_NAME }}{% endblock %}
+{% block main_class %}page page--narrow{% endblock %}
+
+{% block content %}
+<header class="page-head">
+  <h1>Your account</h1>
+  <p class="muted">{{ current_user.email }}</p>
+</header>
+
+<section class="panel">
+  <div class="panel__head"><span class="panel__title">Profile</span></div>
+  <div class="panel__body">
+    <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="action" value="profile">
+      <div class="field">
+        <label class="field-label" for="display_name">Display name</label>
+        <input class="input" type="text" id="display_name" name="display_name" maxlength="80"
+               value="{{ current_user.display_name or '' }}">
+        <p class="field-hint">
+          Shown on your reports. Blank means "{{ current_user.email.split('@')[0] }}".
+          Your email address is never published.
+        </p>
+      </div>
+      <button class="btn btn--primary" type="submit">Save</button>
+    </form>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel__head"><span class="panel__title">Password</span></div>
+  <div class="panel__body">
+    <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="action" value="password">
+      <div class="field">
+        <label class="field-label" for="current_password">Current password</label>
+        <input class="input" type="password" id="current_password" name="current_password"
+               required autocomplete="current-password">
+      </div>
+      <div class="field">
+        <label class="field-label" for="new_password">New password</label>
+        <input class="input" type="password" id="new_password" name="new_password"
+               required minlength="8" autocomplete="new-password">
+      </div>
+      <div class="field">
+        <label class="field-label" for="confirm_password">Confirm new password</label>
+        <input class="input" type="password" id="confirm_password" name="confirm_password"
+               required minlength="8" autocomplete="new-password">
+      </div>
+      <button class="btn btn--primary" type="submit">Change password</button>
+    </form>
+  </div>
+</section>
+
+<p class="auth-alt">
+  <a href="{{ url_for('pets.my_pets') }}">Your reports →</a>
+</p>
+{% endblock %}

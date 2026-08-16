@@ -1,0 +1,393 @@
+"""Database models for PetMap Tasmania.
+
+The central record is ``Pet`` — one *report*, either "my pet is missing" or
+"I found this animal". Everything else hangs off it: photos, sightings, and
+relayed contact messages.
+
+Two things in here are load-bearing and easy to get wrong later:
+
+* **Exact vs public coordinates.** ``lat``/``lng`` are what the reporter
+  actually pinned. ``public_lat``/``public_lng`` are what the world sees. For a
+  missing pet those differ by a random offset, because "last seen" is usually
+  the owner's front lawn. Serialise the public pair to anonymous callers, the
+  exact pair only to the owner and moderators.
+* **Soft deletion.** Nothing is ever hard-deleted by a moderator, so moderation
+  is reversible and auditable. Every query that feeds a public surface must
+  filter ``is_removed == False``.
+"""
+from __future__ import annotations
+
+import math
+import random
+from datetime import datetime, timedelta, timezone
+
+from flask_login import UserMixin
+from werkzeug.security import generate_password_hash, check_password_hash
+
+from extensions import db, login_manager
+
+# ── Vocabularies ────────────────────────────────────────────────────────────
+# Stored as short lower-case strings rather than enums: SQLite and Postgres
+# disagree about native enums, and adding a species should not need a migration.
+
+ROLE_USER = "user"
+ROLE_MODERATOR = "moderator"
+ROLE_ADMIN = "admin"
+
+REPORT_MISSING = "missing"
+REPORT_FOUND = "found"
+REPORT_TYPES = {
+    REPORT_MISSING: "Missing",
+    REPORT_FOUND: "Found",
+}
+
+STATUS_ACTIVE = "active"
+STATUS_REUNITED = "reunited"
+STATUS_CLOSED = "closed"
+STATUSES = {
+    STATUS_ACTIVE: "Active",
+    STATUS_REUNITED: "Reunited",
+    STATUS_CLOSED: "Closed",
+}
+
+SPECIES = {
+    "dog": "Dog",
+    "cat": "Cat",
+    "bird": "Bird",
+    "rabbit": "Rabbit",
+    "guinea_pig": "Guinea pig",
+    "horse": "Horse",
+    "reptile": "Reptile",
+    "other": "Other",
+}
+
+SEXES = {"unknown": "Unknown", "female": "Female", "male": "Male"}
+SIZES = {"": "Not stated", "small": "Small", "medium": "Medium", "large": "Large"}
+MICROCHIP = {"unknown": "Unknown", "yes": "Microchipped", "no": "Not microchipped"}
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _as_aware(value: datetime | None) -> datetime | None:
+    """Attach UTC to a naive datetime.
+
+    SQLite hands back naive datetimes even for ``DateTime(timezone=True)``
+    columns, so arithmetic against ``_utcnow()`` raises unless we normalise.
+    Postgres returns aware values and this is a no-op.
+    """
+    if value is not None and value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
+def blur_point(lat: float, lng: float, radius_m: float) -> tuple[float, float]:
+    """Return a point uniformly distributed in a disc of ``radius_m`` around it.
+
+    sqrt() on the radius draw is what makes it *uniform over the area* — without
+    it, points bunch towards the centre and the true location is still the most
+    likely guess, which defeats the point of blurring at all.
+    """
+    theta = random.random() * 2.0 * math.pi
+    r = radius_m * math.sqrt(random.random())
+    dlat = (r * math.cos(theta)) / 111_320.0
+    # Guard the pole case even though Tasmania is nowhere near it.
+    coslat = math.cos(math.radians(lat))
+    dlng = (r * math.sin(theta)) / (111_320.0 * coslat) if abs(coslat) > 1e-6 else 0.0
+    return lat + dlat, lng + dlng
+
+
+class User(UserMixin, db.Model):
+    __tablename__ = "users"
+
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(255), unique=True, nullable=False, index=True)
+    password_hash = db.Column(db.String(255), nullable=False)
+
+    # Shown as the reporter's name on a pet page. Optional; falls back to the
+    # part of the email before the @, never the full address.
+    display_name = db.Column(db.String(80), nullable=True)
+
+    role = db.Column(db.String(20), nullable=False, default=ROLE_USER, server_default=ROLE_USER)
+    # db.false() rather than text("0"): SQLite accepts 0 for a boolean, Postgres
+    # does not, and production is Postgres.
+    is_banned = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
+
+    created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
+
+    pets = db.relationship("Pet", backref="reporter", lazy="dynamic",
+                           foreign_keys="Pet.user_id")
+
+    def set_password(self, password: str) -> None:
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password: str) -> bool:
+        return check_password_hash(self.password_hash, password)
+
+    @property
+    def is_moderator(self) -> bool:
+        return self.role in (ROLE_MODERATOR, ROLE_ADMIN)
+
+    @property
+    def is_admin(self) -> bool:
+        return self.role == ROLE_ADMIN
+
+    @property
+    def public_name(self) -> str:
+        return self.display_name or self.email.split("@")[0]
+
+    def active_pet_count(self) -> int:
+        return self.pets.filter_by(is_removed=False, status=STATUS_ACTIVE).count()
+
+
+class Pet(db.Model):
+    """One lost-or-found report."""
+
+    __tablename__ = "pets"
+    # Composite index on the coordinate pair: every map request is a bounding-box
+    # scan, and without this it is a full table scan per pan.
+    __table_args__ = (
+        db.Index("ix_pets_bbox", "public_lat", "public_lng"),
+        db.Index("ix_pets_visible", "is_removed", "status", "report_type"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+
+    report_type = db.Column(db.String(16), nullable=False, index=True)   # missing | found
+    status = db.Column(db.String(16), nullable=False, default=STATUS_ACTIVE,
+                       server_default=STATUS_ACTIVE, index=True)
+
+    # ── The animal ──
+    species = db.Column(db.String(24), nullable=False, default="other")
+    name = db.Column(db.String(80), nullable=True)        # missing pets only
+    breed = db.Column(db.String(120), nullable=True)
+    colour = db.Column(db.String(120), nullable=True)
+    sex = db.Column(db.String(16), nullable=False, default="unknown", server_default="unknown")
+    size = db.Column(db.String(16), nullable=True)
+    microchipped = db.Column(db.String(16), nullable=False, default="unknown",
+                             server_default="unknown")
+    collar = db.Column(db.String(200), nullable=True)
+    description = db.Column(db.Text, nullable=True)
+
+    # ── Where and when ──
+    last_seen_at = db.Column(db.DateTime(timezone=True), nullable=False, index=True)
+    lat = db.Column(db.Float, nullable=False)          # exact, never public
+    lng = db.Column(db.Float, nullable=False)
+    public_lat = db.Column(db.Float, nullable=False)   # blurred when blur_location
+    public_lng = db.Column(db.Float, nullable=False)
+    blur_location = db.Column(db.Boolean, nullable=False, default=True,
+                              server_default=db.true())
+    address_raw = db.Column(db.String(300), nullable=True)   # what the user typed, if anything
+    locality = db.Column(db.String(120), nullable=True, index=True)
+
+    # ── Contact ──
+    # The email is always the account's, and is never rendered. Phone is shown
+    # only if the reporter ticks the box.
+    contact_phone = db.Column(db.String(40), nullable=True)
+    show_phone = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
+
+    created_at = db.Column(db.DateTime(timezone=True), default=_utcnow, index=True)
+    updated_at = db.Column(db.DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+    resolved_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    # ── Moderation (soft delete) ──
+    is_removed = db.Column(db.Boolean, nullable=False, default=False,
+                           server_default=db.false(), index=True)
+    removed_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    removed_reason = db.Column(db.String(500), nullable=True)
+    removed_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    removed_by = db.relationship("User", foreign_keys=[removed_by_id])
+    photos = db.relationship("PetPhoto", backref="pet", lazy="select",
+                             cascade="all, delete-orphan",
+                             order_by="PetPhoto.sort_order")
+    sightings = db.relationship("Sighting", backref="pet", lazy="dynamic",
+                                cascade="all, delete-orphan")
+
+    # ── Derived ──
+
+    def set_location(self, lat: float, lng: float, blur: bool, radius_m: float) -> None:
+        """Set the true point and refresh the public one only when it must.
+
+        Re-rolling the offset on every save would leak the true location to
+        anyone sampling the public feed repeatedly: the mean of many offsets
+        converges on it. So the offset is regenerated only when the true point
+        moves or the blur setting changes.
+        """
+        moved = (self.lat != lat) or (self.lng != lng)
+        toggled = (self.blur_location != blur)
+        self.lat, self.lng = lat, lng
+        self.blur_location = blur
+        if moved or toggled or self.public_lat is None:
+            if blur:
+                self.public_lat, self.public_lng = blur_point(lat, lng, radius_m)
+            else:
+                self.public_lat, self.public_lng = lat, lng
+
+    @property
+    def label(self) -> str:
+        """Short human name for the report, used in emails and page titles."""
+        kind = SPECIES.get(self.species, "Animal")
+        if self.report_type == REPORT_MISSING:
+            return f"{self.name or kind} ({kind}, missing)" if self.name else f"Missing {kind.lower()}"
+        return f"Found {kind.lower()}" + (f" — {self.locality}" if self.locality else "")
+
+    @property
+    def age_days(self) -> int:
+        seen = _as_aware(self.last_seen_at)
+        return max(0, (_utcnow() - seen).days) if seen else 0
+
+    @property
+    def is_active(self) -> bool:
+        return self.status == STATUS_ACTIVE and not self.is_removed
+
+    @property
+    def primary_photo(self):
+        return self.photos[0] if self.photos else None
+
+    def visible_sightings(self):
+        return (self.sightings.filter_by(is_removed=False)
+                .order_by(Sighting.seen_at.desc()))
+
+    def can_edit(self, user) -> bool:
+        """Owner or moderator. Anonymous users get False, not an exception."""
+        if not user or not getattr(user, "is_authenticated", False):
+            return False
+        return user.id == self.user_id or user.is_moderator
+
+    def to_feature(self, exact: bool = False) -> dict:
+        """GeoJSON Feature for the map. ``exact`` is for the owner/moderator only."""
+        lat = self.lat if exact else self.public_lat
+        lng = self.lng if exact else self.public_lng
+        photo = self.primary_photo
+        return {
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [lng, lat]},
+            "properties": {
+                "id": self.id,
+                "report_type": self.report_type,
+                "status": self.status,
+                "species": self.species,
+                "species_label": SPECIES.get(self.species, "Other"),
+                "name": self.name,
+                "breed": self.breed,
+                "colour": self.colour,
+                "locality": self.locality,
+                "age_days": self.age_days,
+                "approximate": bool(self.blur_location) and not exact,
+                "thumb_url": f"/pets/{self.id}/photo/{photo.id}?size=thumb" if photo else None,
+                "url": f"/pets/{self.id}",
+            },
+        }
+
+
+class PetPhoto(db.Model):
+    """A photo of the animal.
+
+    Stored in the database rather than object storage: Render's filesystem is
+    ephemeral, so anything written to disk vanishes on the next deploy. Images
+    are resized to <=1280 px JPEG on upload (services/images.py), and a small
+    square thumbnail is cached alongside so the map does not ship full-size
+    photos into a popup.
+    """
+
+    __tablename__ = "pet_photos"
+
+    id = db.Column(db.Integer, primary_key=True)
+    pet_id = db.Column(db.Integer, db.ForeignKey("pets.id"), nullable=False, index=True)
+    data = db.Column(db.LargeBinary, nullable=False)
+    thumb = db.Column(db.LargeBinary, nullable=True)
+    mimetype = db.Column(db.String(64), nullable=False, default="image/jpeg")
+    sort_order = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
+
+
+class Sighting(db.Model):
+    """Someone reports seeing a specific missing/found animal at a place."""
+
+    __tablename__ = "sightings"
+
+    id = db.Column(db.Integer, primary_key=True)
+    pet_id = db.Column(db.Integer, db.ForeignKey("pets.id"), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+
+    lat = db.Column(db.Float, nullable=False)
+    lng = db.Column(db.Float, nullable=False)
+    seen_at = db.Column(db.DateTime(timezone=True), nullable=False)
+    note = db.Column(db.String(1000), nullable=True)
+
+    photo = db.Column(db.LargeBinary, nullable=True)
+    photo_mimetype = db.Column(db.String(64), nullable=True)
+
+    created_at = db.Column(db.DateTime(timezone=True), default=_utcnow, index=True)
+
+    is_removed = db.Column(db.Boolean, nullable=False, default=False,
+                           server_default=db.false(), index=True)
+    removed_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    removed_reason = db.Column(db.String(500), nullable=True)
+    removed_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    reporter = db.relationship("User", foreign_keys=[user_id])
+    removed_by = db.relationship("User", foreign_keys=[removed_by_id])
+
+    # Sightings are shown at their exact point on purpose: unlike a "last seen"
+    # address, a street corner where a stray was spotted is not anybody's home.
+
+    @property
+    def has_photo(self) -> bool:
+        return self.photo is not None
+
+
+class ContactMessage(db.Model):
+    """Audit log of messages relayed from a finder to a reporter.
+
+    The body is kept so an abuse report can be investigated — the relay is the
+    one channel where one user's words reach another's inbox, and a channel
+    with no record is a channel that cannot be moderated.
+    """
+
+    __tablename__ = "contact_messages"
+
+    id = db.Column(db.Integer, primary_key=True)
+    pet_id = db.Column(db.Integer, db.ForeignKey("pets.id"), nullable=False, index=True)
+    sender_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    body = db.Column(db.String(2000), nullable=False)
+    created_at = db.Column(db.DateTime(timezone=True), default=_utcnow, index=True)
+
+    pet = db.relationship("Pet")
+    sender = db.relationship("User", foreign_keys=[sender_id])
+
+
+class GeocodeCache(db.Model):
+    """Address -> coordinates, cached so repeat lookups don't cost a Google call."""
+
+    __tablename__ = "geocode_cache"
+
+    id = db.Column(db.Integer, primary_key=True)
+    normalized_address = db.Column(db.String(500), unique=True, nullable=False, index=True)
+    lat = db.Column(db.Float, nullable=False)
+    lng = db.Column(db.Float, nullable=False)
+    formatted = db.Column(db.String(500), nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
+
+
+def recent_count(model, author_column, user_id: int, hours: int = 1) -> int:
+    """How many rows this user created in the last ``hours`` — crude rate limiting.
+
+    Counting rows beats an in-process counter because the app may run more than
+    one worker, and a per-process counter is no limit at all. ``author_column``
+    is passed explicitly rather than guessed: Sighting calls it ``user_id`` and
+    ContactMessage calls it ``sender_id``.
+    """
+    since = _utcnow() - timedelta(hours=hours)
+    return (db.session.query(model)
+            .filter(model.created_at >= since)
+            .filter(author_column == user_id)
+            .count())
+
+
+@login_manager.user_loader
+def load_user(user_id: str):
+    return db.session.get(User, int(user_id))

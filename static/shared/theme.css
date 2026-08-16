@@ -1,0 +1,302 @@
+/* ============================================================================
+   ARETE HUD — theme.css
+   Design tokens + primitives for the "technical instrument" UI system.
+   Inspired by WipEout HD / The Designers Republic menus and engineering
+   tooling (DRAINS, BricsCAD, GIS layer panels). Angular, high-contrast,
+   data-forward. Light "instrument panel" by default; dark variant included.
+
+   Load order:  theme.css  ->  components.css  ->  your app styles.
+   Everything is driven by the custom properties in :root, so re-skinning an
+   app is mostly a matter of changing the accent + ink ramp below.
+   ============================================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+/* ----------------------------------------------------------------- TOKENS -- */
+:root {
+  /* --- Ink ramp (text, borders, structure) --- */
+  --ink-900: #0e1116;   /* strongest text / dark surfaces */
+  --ink-800: #161c24;
+  --ink-700: #232c37;
+  --ink-600: #3a4552;
+  --ink-500: #5a6675;   /* secondary text */
+  --ink-400: #7d8898;   /* muted / captions */
+  --ink-300: #a7b0bd;   /* disabled */
+  --ink-200: #cdd4dd;
+
+  /* --- Surfaces (light instrument panel) --- */
+  --paper:   #f4f6f9;   /* app background */
+  --panel:   #ffffff;   /* cards / raised */
+  --panel-2: #eef1f6;   /* inset / wells */
+  --panel-3: #e4e9f0;
+
+  /* --- Hairlines --- */
+  --line:        #d5dbe4;
+  --line-strong: #b9c2ce;
+  --line-onink:  #2b3542;   /* hairlines on dark surfaces */
+
+  /* --- Console surfaces: ALWAYS dark, never inverted by the theme.
+         Use for the app header and instrument/console panels. --- */
+  --console-bg:   #0e1116;
+  --console-fg:   #dfe6ee;
+  --console-line: #2b3542;
+
+  /* --- Accent (technical aqua/cyan) --- */
+  --accent:      #0a9ec2;
+  --accent-ink:  #077f9d;   /* darker, for text on light */
+  --accent-hi:   #23c0e4;   /* brighter, for glows/hover */
+  --accent-soft: #e2f5fa;   /* tint fill */
+
+  /* --- Support + signal --- */
+  --blue:   #0b5cad;   /* secondary structural accent */
+  --danger: #e0342a;   /* fail / over-limit */
+  --warn:   #e2820b;   /* caution */
+  --ok:     #1c9c56;   /* pass */
+  --danger-soft: #fdecea;
+  --warn-soft:   #fdf1df;
+  --ok-soft:     #e6f5ec;
+
+  /* --- Typography --- */
+  --font-ui:   'Archivo', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+
+  --fs-0: 0.6875rem;  /* 11 - kickers / captions */
+  --fs-1: 0.75rem;    /* 12 - labels */
+  --fs-2: 0.8125rem;  /* 13 - body / controls */
+  --fs-3: 0.9375rem;  /* 15 - emphasised */
+  --fs-4: 1.125rem;   /* 18 - panel titles */
+  --fs-5: 1.5rem;     /* 24 - section titles */
+  --fs-6: 2.25rem;    /* 36 - display / big readouts */
+  --fs-7: 3.25rem;    /* 52 - hero */
+
+  --tracking-cap: 0.08em;   /* uppercase label tracking */
+  --tracking-wide: 0.14em;  /* kicker tracking */
+
+  /* --- Space scale (4px base) --- */
+  --sp-1: 0.25rem;  --sp-2: 0.5rem;   --sp-3: 0.75rem;  --sp-4: 1rem;
+  --sp-5: 1.5rem;   --sp-6: 2rem;     --sp-7: 3rem;     --sp-8: 4rem;
+
+  /* --- Geometry (angular, minimal rounding) --- */
+  --radius:   2px;
+  --radius-lg: 3px;
+  --chamfer:  10px;         /* notched-corner cut size */
+  --bracket-len: 11px;      /* corner-bracket arm length */
+  --bracket-w: 1.5px;
+
+  /* --- Elevation (HUD favours borders over shadows) --- */
+  --shadow-1: 0 1px 2px rgba(14,17,22,.06), 0 1px 1px rgba(14,17,22,.04);
+  --shadow-2: 0 4px 14px rgba(14,17,22,.10);
+  --shadow-pop: 0 12px 40px rgba(14,17,22,.22);
+
+  /* --- Motion --- */
+  --dur: 120ms;
+  --ease: cubic-bezier(.2,.6,.2,1);
+}
+
+/* ------------------------------------------------------- DARK VARIANT ----- */
+[data-theme="dark"] {
+  --ink-900: #f2f5f8;   /* text inverts */
+  --ink-800: #e4e9ef;
+  --ink-700: #cbd3dd;
+  --ink-600: #a7b2be;
+  --ink-500: #8b96a4;
+  --ink-400: #6b7787;
+  --ink-300: #4a5666;
+  --ink-200: #333e4b;
+
+  --paper:   #0b0f14;
+  --panel:   #12181f;
+  --panel-2: #0f151b;
+  --panel-3: #1a222b;
+
+  --line:        #232c37;
+  --line-strong: #33404e;
+  --line-onink:  #2b3542;
+
+  --accent:      #19b7db;
+  --accent-ink:  #58d3ef;
+  --accent-hi:   #5fdcf6;
+  --accent-soft: #0e2730;
+
+  --danger-soft: #2a1512;
+  --warn-soft:   #2a1f0d;
+  --ok-soft:     #10241a;
+
+  --shadow-1: 0 1px 2px rgba(0,0,0,.4);
+  --shadow-2: 0 6px 18px rgba(0,0,0,.5);
+  --shadow-pop: 0 16px 44px rgba(0,0,0,.6);
+}
+
+/* ------------------------------------------------------------- RESET ------ */
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: var(--fs-2);
+  line-height: 1.45;
+  color: var(--ink-800);
+  background: var(--paper);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3, h4, h5, h6 { margin: 0; font-weight: 700; line-height: 1.15; color: var(--ink-900); }
+p  { margin: 0 0 var(--sp-3); }
+a  { color: var(--accent-ink); text-decoration: none; }
+a:hover { color: var(--accent); }
+
+::selection { background: var(--accent); color: #fff; }
+
+/* Numeric / tabular data always reads as an instrument */
+.mono, .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/* ================================================================ PRIMITIVES */
+
+/* --- Kicker: tiny uppercase label with a leading block, à la "▪ SCREEN TITLE" */
+.kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-0);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--ink-400);
+}
+.kicker::before {
+  content: "";
+  width: 7px; height: 7px;
+  background: var(--accent);
+  flex: none;
+}
+
+/* --- HUD section header: block glyph + uppercase title + hairline rule --- */
+.hud-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  font-size: var(--fs-5);
+  font-weight: 800;
+  letter-spacing: var(--tracking-cap);
+  text-transform: uppercase;
+  color: var(--ink-900);
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--line-strong);
+  position: relative;
+}
+.hud-title::before {              /* leading solid block marker */
+  content: "";
+  align-self: center;
+  width: 6px; height: 1.1em;
+  background: var(--accent);
+  flex: none;
+}
+.hud-title .hud-title__meta {     /* right-aligned value, e.g. "11 / 18 POINTS" */
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-2);
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--accent-ink);
+}
+
+/* --- Hairline rule --- */
+.rule { height: 1px; background: var(--line); border: 0; margin: var(--sp-4) 0; }
+.rule--strong { background: var(--line-strong); }
+
+/* --- Corner brackets: the signature framing device -------------------------
+   Draws 4 L-shaped ticks with pure CSS gradients. Put on any block. --------- */
+.hud-frame {
+  position: relative;
+  --_c: var(--line-strong);
+  background-image:
+    linear-gradient(var(--_c), var(--_c)), linear-gradient(var(--_c), var(--_c)),  /* TL */
+    linear-gradient(var(--_c), var(--_c)), linear-gradient(var(--_c), var(--_c)),  /* TR */
+    linear-gradient(var(--_c), var(--_c)), linear-gradient(var(--_c), var(--_c)),  /* BL */
+    linear-gradient(var(--_c), var(--_c)), linear-gradient(var(--_c), var(--_c));  /* BR */
+  background-repeat: no-repeat;
+  background-size:
+    var(--bracket-len) var(--bracket-w), var(--bracket-w) var(--bracket-len),
+    var(--bracket-len) var(--bracket-w), var(--bracket-w) var(--bracket-len),
+    var(--bracket-len) var(--bracket-w), var(--bracket-w) var(--bracket-len),
+    var(--bracket-len) var(--bracket-w), var(--bracket-w) var(--bracket-len);
+  background-position:
+    top left, top left,
+    top right, top right,
+    bottom left, bottom left,
+    bottom right, bottom right;
+}
+.hud-frame--accent { --_c: var(--accent); }
+
+/* --- Notched / chamfered corners (top-right + bottom-left cut) --- */
+.clip-notch {
+  clip-path: polygon(
+    0 0, calc(100% - var(--chamfer)) 0, 100% var(--chamfer),
+    100% 100%, var(--chamfer) 100%, 0 calc(100% - var(--chamfer))
+  );
+}
+.clip-notch-tr { clip-path: polygon(0 0, calc(100% - var(--chamfer)) 0, 100% var(--chamfer), 100% 100%, 0 100%); }
+
+/* --- Hazard candystripe accent bar --- */
+.hazard {
+  background-image: repeating-linear-gradient(-45deg,
+    var(--accent) 0, var(--accent) 7px,
+    transparent 7px, transparent 15px);
+}
+.hazard--thin {
+  background-image: repeating-linear-gradient(-45deg,
+    var(--accent) 0, var(--accent) 3px,
+    transparent 3px, transparent 8px);
+}
+
+/* --- Perforated dot-grid fill (progress bars, image placeholders) --- */
+.dotgrid {
+  background-image: radial-gradient(var(--line-strong) 1px, transparent 1.4px);
+  background-size: 6px 6px;
+}
+.dotgrid--accent { background-image: radial-gradient(var(--accent) 1px, transparent 1.4px); }
+
+/* --- Button-legend footer bar (● NAVIGATION  ⊗ CONFIRM) --- */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-5);
+  padding: var(--sp-2) var(--sp-4);
+  border-top: 1px solid var(--line);
+  font-size: var(--fs-0);
+  letter-spacing: var(--tracking-cap);
+  text-transform: uppercase;
+  color: var(--ink-400);
+}
+.legend__key {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.legend__glyph {
+  display: inline-grid;
+  place-items: center;
+  min-width: 15px; height: 15px;
+  padding: 0 3px;
+  border: 1px solid var(--ink-300);
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--ink-500);
+}
+
+/* --- Focus ring (consistent, accent) --- */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* --- Utility spacing helpers (sparingly) --- */
+.stack > * + * { margin-top: var(--sp-3); }
+.row { display: flex; gap: var(--sp-3); align-items: center; }
+.muted { color: var(--ink-400); }
+.caps  { text-transform: uppercase; letter-spacing: var(--tracking-cap); }

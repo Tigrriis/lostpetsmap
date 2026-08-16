@@ -1,0 +1,280 @@
+{% extends "base.html" %}
+{% block title %}{{ "Report a pet" if is_new else "Edit report" }} · {{ SITE_NAME }}{% endblock %}
+
+{% block head_links %}
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+{% endblock %}
+
+{% block content %}
+<form class="form-page" method="post" enctype="multipart/form-data" id="pet-form"
+      action="{{ url_for('pets.new_pet') if is_new else url_for('pets.edit_pet', pet_id=pet.id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+  <header class="page-head">
+    <h1>{{ "Report a pet" if is_new else "Edit report" }}</h1>
+    <p class="muted">
+      The more specific the description, the better the chance someone recognises them.
+      Read the <a href="{{ url_for('safety') }}">safety notes</a> before you share contact details.
+    </p>
+  </header>
+
+  <!-- ── What kind of report ─────────────────────────────────────────── -->
+  <section class="panel">
+    <div class="panel__head"><span class="panel__title">1 · What happened</span></div>
+    <div class="panel__body">
+      <div class="radio-cards">
+        <label class="radio-card">
+          <input type="radio" name="report_type" value="missing"
+                 {{ "checked" if values.report_type != "found" }} required>
+          <span class="radio-card__title">My pet is missing</span>
+          <span class="radio-card__sub">You own the animal and can't find them.</span>
+        </label>
+        <label class="radio-card">
+          <input type="radio" name="report_type" value="found"
+                 {{ "checked" if values.report_type == "found" }}>
+          <span class="radio-card__title">I found a pet</span>
+          <span class="radio-card__sub">You've found or are sheltering someone else's animal.</span>
+        </label>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── The animal ──────────────────────────────────────────────────── -->
+  <section class="panel">
+    <div class="panel__head"><span class="panel__title">2 · The animal</span></div>
+    <div class="panel__body form-grid">
+
+      <div class="field">
+        <label class="field-label" for="species">Animal <span class="req">*</span></label>
+        <select class="input" id="species" name="species" required>
+          <option value="">Choose…</option>
+          {% for key, label in species.items() %}
+            <option value="{{ key }}" {{ "selected" if values.species == key }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="field" id="name-field">
+        <label class="field-label" for="name">Their name</label>
+        <input class="input" type="text" id="name" name="name" maxlength="80"
+               value="{{ values.name }}" placeholder="e.g. Raven">
+        <p class="field-hint">Only for a pet you own — leave blank for a found animal.</p>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="breed">Breed</label>
+        <input class="input" type="text" id="breed" name="breed" maxlength="120"
+               value="{{ values.breed }}" placeholder="e.g. Maine Coon, kelpie cross">
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="colour">Colour &amp; markings</label>
+        <input class="input" type="text" id="colour" name="colour" maxlength="120"
+               value="{{ values.colour }}" placeholder="e.g. black and white, white chest patch">
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="sex">Sex</label>
+        <select class="input" id="sex" name="sex">
+          {% for key, label in sexes.items() %}
+            <option value="{{ key }}" {{ "selected" if values.sex == key }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="size">Size</label>
+        <select class="input" id="size" name="size">
+          {% for key, label in sizes.items() %}
+            <option value="{{ key }}" {{ "selected" if values.size == key }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="microchipped">Microchip</label>
+        <select class="input" id="microchipped" name="microchipped">
+          {% for key, label in microchip.items() %}
+            <option value="{{ key }}" {{ "selected" if values.microchipped == key }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <p class="field-hint">Never publish the chip number — a vet will scan it.</p>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="collar">Collar or tag</label>
+        <input class="input" type="text" id="collar" name="collar" maxlength="200"
+               value="{{ values.collar }}" placeholder="e.g. red collar, no tag">
+      </div>
+
+      <div class="field field--wide">
+        <label class="field-label" for="description">Description <span class="req">*</span></label>
+        <textarea class="input" id="description" name="description" rows="5"
+                  maxlength="4000" placeholder="Temperament, distinguishing marks, whether they'll come to a stranger, any medical needs…">{{ values.description }}</textarea>
+        <p class="field-hint">
+          Hold one identifying detail back if you can — a scar, an odd marking. It lets you
+          check that someone claiming to have your pet really does.
+        </p>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ── Where and when ──────────────────────────────────────────────── -->
+  <section class="panel">
+    <div class="panel__head"><span class="panel__title">3 · Where and when</span></div>
+    <div class="panel__body">
+
+      <div class="form-grid">
+        <div class="field">
+          <label class="field-label" for="last_seen_at">Last seen <span class="req">*</span></label>
+          <input class="input" type="datetime-local" id="last_seen_at" name="last_seen_at"
+                 value="{{ values.last_seen_at }}" required>
+          <p class="field-hint">Tasmanian local time.</p>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="locality">Suburb / town</label>
+          <input class="input" type="text" id="locality" name="locality" list="locality-list"
+                 maxlength="120" value="{{ values.locality }}" placeholder="e.g. New Town">
+          <datalist id="locality-list">
+            {% for name in localities %}<option value="{{ name }}">{% endfor %}
+          </datalist>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="address_raw">Find an address (optional)</label>
+        <div class="input-row">
+          <input class="input" type="text" id="address_raw" name="address_raw" maxlength="300"
+                 value="{{ values.address_raw }}" placeholder="e.g. Pedder St, New Town">
+          <button type="button" class="btn btn--ghost" id="geocode-btn">Find</button>
+        </div>
+        <p class="field-hint" id="geocode-hint">
+          This just moves the pin for you. The pin is what gets saved — drag it to the exact spot.
+        </p>
+      </div>
+
+      <div class="pin-map-wrap">
+        <div id="pin-map" class="pin-map" role="application"
+             aria-label="Click or drag to set the location"></div>
+        <p class="pin-readout" id="pin-readout"></p>
+      </div>
+
+      <input type="hidden" name="lat" id="lat" value="{{ values.lat }}">
+      <input type="hidden" name="lng" id="lng" value="{{ values.lng }}">
+
+      <label class="check">
+        <input type="checkbox" name="blur_location" value="1" {{ "checked" if values.blur_location }}>
+        <span>
+          Show only an approximate location publicly
+          <small class="field-hint">
+            Recommended for a missing pet: "last seen" is usually your home address.
+            The map shows a random point within a few hundred metres; you and moderators
+            still see the exact spot, and it's included in sighting alerts.
+          </small>
+        </span>
+      </label>
+
+    </div>
+  </section>
+
+  <!-- ── Photos ──────────────────────────────────────────────────────── -->
+  <section class="panel">
+    <div class="panel__head">
+      <span class="panel__title">4 · Photos</span>
+      <span class="tag">{{ pet.photos|length }} / {{ max_photos }}</span>
+    </div>
+    <div class="panel__body">
+      {% if pet.photos %}
+        <div class="photo-strip">
+          {% for photo in pet.photos %}
+            <figure class="photo-strip__item">
+              <img src="{{ url_for('pets.pet_photo', pet_id=pet.id, photo_id=photo.id, size='thumb') }}"
+                   alt="Photo {{ loop.index }}">
+              <button type="button" class="btn btn--danger btn--sm"
+                      data-delete-photo="{{ url_for('pets.delete_photo', pet_id=pet.id, photo_id=photo.id) }}">
+                Delete
+              </button>
+            </figure>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      {% if pet.photos|length < max_photos %}
+        <div class="field">
+          <label class="field-label" for="photos">Add photos</label>
+          <input class="input" type="file" id="photos" name="photos" accept="image/*" multiple>
+          <p class="field-hint">
+            Up to {{ max_photos }} in total. A clear, well-lit shot of the whole animal beats a
+            close-up of their face. Photos are resized automatically.
+          </p>
+        </div>
+      {% endif %}
+    </div>
+  </section>
+
+  <!-- ── Contact ─────────────────────────────────────────────────────── -->
+  <section class="panel">
+    <div class="panel__head"><span class="panel__title">5 · How people reach you</span></div>
+    <div class="panel__body">
+      <p class="muted">
+        Your email address is never shown on the site. Anyone signed in can send you a
+        message through {{ SITE_NAME }}, and it arrives in your inbox with their address
+        in the reply line.
+      </p>
+
+      <div class="form-grid">
+        <div class="field">
+          <label class="field-label" for="contact_phone">Phone number (optional)</label>
+          <input class="input" type="tel" id="contact_phone" name="contact_phone" maxlength="40"
+                 value="{{ values.contact_phone }}" placeholder="04xx xxx xxx">
+        </div>
+      </div>
+
+      <label class="check">
+        <input type="checkbox" name="show_phone" value="1" {{ "checked" if values.show_phone }}>
+        <span>
+          Show my phone number on the report
+          <small class="field-hint">
+            Faster for genuine finders, and visible to everyone including scammers.
+            Leave it off and the message relay still works.
+          </small>
+        </span>
+      </label>
+    </div>
+  </section>
+
+  <div class="form-actions">
+    <button type="submit" class="btn btn--primary">
+      {{ "Post report" if is_new else "Save changes" }}
+    </button>
+    <a class="btn btn--ghost"
+       href="{{ url_for('map_page') if is_new else url_for('pets.pet_detail', pet_id=pet.id) }}">Cancel</a>
+  </div>
+</form>
+
+{% if pet.id %}
+  <!-- Photo deletion is its own POST, so it can't ride along inside the main
+       form (nested forms are invalid HTML). app.js posts this one. -->
+  <form id="photo-delete-form" method="post" hidden>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  </form>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script>
+    window.PETMAP_FORM = {
+      bounds: {{ bounds | tojson }},
+      centre: {{ centre | tojson }},
+      lat: {{ values.lat | float if values.lat not in (None, "") else "null" }},
+      lng: {{ values.lng | float if values.lng not in (None, "") else "null" }},
+      geocodeUrl: "{{ url_for('pets.api_geocode') }}"
+    };
+  </script>
+  <script src="{{ url_for('static', filename='petmap/pet_form.js') }}"></script>
+{% endblock %}
