@@ -169,6 +169,50 @@ body { background: var(--paper); color: var(--ink-800); }
 .dot--missing  { background: var(--danger); }
 .dot--found    { background: var(--accent); }
 .dot--reunited { background: var(--ok); }
+.dot--searched { background: var(--ok); opacity: 0.45; border-radius: 2px; }
+
+/* ------------------------------------------------- SEARCH COVERAGE ------- */
+
+.track-list { display: grid; gap: var(--sp-2); margin-bottom: var(--sp-4); }
+.track-row {
+  display: grid;
+  grid-template-columns: 12px 1fr;
+  gap: var(--sp-3);
+  align-items: start;
+  padding: var(--sp-2) 0;
+  border-bottom: 1px solid var(--line);
+}
+.track-row .dot { margin-top: 5px; }
+.track-row small { color: var(--ink-500); font-size: var(--fs-0); }
+.track-row__note { color: var(--ink-600); font-size: var(--fs-1); }
+
+.search-controls {
+  padding: var(--sp-4);
+  border: 1px solid var(--line-strong);
+  background: var(--panel-2);
+  margin-bottom: var(--sp-4);
+}
+
+.live-readout {
+  display: flex;
+  gap: var(--sp-6);
+  flex-wrap: wrap;
+  padding-bottom: var(--sp-3);
+  margin-bottom: var(--sp-3);
+  border-bottom: 1px solid var(--line);
+}
+.live-status {
+  font-family: var(--font-mono);
+  font-size: var(--fs-1);
+  color: var(--ink-500);
+  margin: 0 0 var(--sp-3);
+}
+.live-status.is-error { color: var(--danger); }
+
+/* Leaflet draws each covered square as its own rectangle; keeping them
+   borderless means overlapping cells read as one continuous wash rather than
+   as a grid of outlines. */
+.leaflet-interactive.coverage-cell { stroke: none; }
 
 /* Results list */
 .result-item {

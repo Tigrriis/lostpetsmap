@@ -227,6 +227,115 @@
     </div>
   </section>
 
+  <!-- ── Search coverage ──────────────────────────────────────────────── -->
+  <section class="panel" id="coverage-panel">
+    <div class="panel__head">
+      <span class="panel__title">Where people have searched</span>
+      <span class="tag" id="track-count">—</span>
+    </div>
+    <div class="panel__body">
+
+      <div id="track-list" class="track-list">
+        <p class="muted">No searches logged yet.</p>
+      </div>
+
+      {% if current_user.is_authenticated and pet.status == 'active' and not pet.is_removed %}
+        <div class="search-controls">
+          <div id="search-idle">
+            <div class="field">
+              <label class="field-label" for="track-source">How are you searching?</label>
+              <select class="input" id="track-source">
+                {% for key, label in track_sources.items() %}
+                  {% if key != 'drone' %}<option value="{{ key }}">{{ label }}</option>{% endif %}
+                {% endfor %}
+              </select>
+            </div>
+            <button type="button" class="btn btn--primary" id="start-search">
+              ◉ Start logging my search
+            </button>
+            <p class="field-hint">
+              Your phone records where you go and adds it to the coverage map when you
+              finish. <strong>Keep this screen open</strong> — browsers stop reading GPS
+              once the screen locks. The first and last {{ trim_m }} m of every track are
+              trimmed off before saving, so it never shows where you set out from.
+            </p>
+          </div>
+
+          <div id="search-live" hidden>
+            <div class="live-readout">
+              <div class="stat">
+                <span class="stat__value" id="live-time">0:00</span>
+                <span class="stat__label">elapsed</span>
+              </div>
+              <div class="stat">
+                <span class="stat__value" id="live-distance">0</span>
+                <span class="stat__unit">m</span>
+                <span class="stat__label">travelled</span>
+              </div>
+              <div class="stat">
+                <span class="stat__value" id="live-points">0</span>
+                <span class="stat__label">fixes</span>
+              </div>
+            </div>
+            <p class="live-status" id="live-status">Waiting for GPS…</p>
+            <div class="field">
+              <label class="field-label" for="track-notes">Notes (optional)</label>
+              <input class="input" type="text" id="track-notes" maxlength="500"
+                     placeholder="e.g. checked all the sheds along the creek">
+            </div>
+            <button type="button" class="btn btn--primary" id="finish-search">
+              ■ Finish &amp; publish
+            </button>
+            <button type="button" class="btn btn--danger btn--sm" id="abandon-search">
+              Discard
+            </button>
+          </div>
+        </div>
+
+        <details class="disclosure">
+          <summary>Log a drone flight</summary>
+          <form method="post" enctype="multipart/form-data"
+                action="{{ url_for('tracks.import_drone_photos', pet_id=pet.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="field">
+              <label class="field-label" for="drone-photos">Photos from the flight</label>
+              <input class="input" type="file" id="drone-photos" name="photos"
+                     accept="image/*" multiple required>
+              <p class="field-hint">
+                The flight path is rebuilt from the GPS stored in each photo, in the order
+                they were taken. <strong>The photos themselves are not uploaded or kept</strong> —
+                each one is read for its coordinates and discarded, so nothing you shot
+                is stored or shown.
+              </p>
+              <p class="field-hint">
+                Unlike a walked search, a flight is <strong>not</strong> trimmed at the ends —
+                the whole path counts as coverage. If you launched from somewhere you'd
+                rather not put on the map, leave those first and last photos out.
+              </p>
+            </div>
+            <div class="field">
+              <label class="field-label" for="drone-notes">Notes (optional)</label>
+              <input class="input" type="text" id="drone-notes" name="notes" maxlength="500"
+                     placeholder="e.g. thermal grid, 60 m AGL, dusk">
+            </div>
+            <button class="btn btn--primary" type="submit">Add flight</button>
+          </form>
+        </details>
+      {% elif not current_user.is_authenticated %}
+        <p class="muted">
+          <a href="{{ url_for('auth.login', next=request.path) }}">Sign in</a> to log a
+          search of your own.
+        </p>
+      {% endif %}
+
+      <p class="field-hint">
+        Coverage is shown as {{ cell_m|int }} m squares. The exact route is visible only to
+        whoever walked it, {{ 'you' if can_edit else 'the person who posted this report' }},
+        and site moderators.
+      </p>
+    </div>
+  </section>
+
   <!-- ── Contact ──────────────────────────────────────────────────────── -->
   {% if current_user.is_authenticated and current_user.id != pet.user_id and not pet.is_removed %}
     <section class="panel">
@@ -272,8 +381,16 @@
         {% for s in sightings %}
           {lat: {{ s.lat }}, lng: {{ s.lng }}, when: {{ (s.seen_at | localtime) | tojson }}},
         {% endfor %}
-      ]
+      ],
+      petId: {{ pet.id }},
+      canLogSearch: {{ (current_user.is_authenticated and pet.status == 'active'
+                        and not pet.is_removed) | tojson }},
+      urls: {
+        tracks: "{{ url_for('tracks.pet_tracks', pet_id=pet.id) }}",
+        start: "{{ url_for('tracks.start_track', pet_id=pet.id) }}"
+      }
     };
   </script>
   <script src="{{ url_for('static', filename='petmap/pet_detail.js') }}"></script>
+  <script src="{{ url_for('static', filename='petmap/search_track.js') }}"></script>
 {% endblock %}

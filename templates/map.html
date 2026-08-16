@@ -74,10 +74,23 @@
         <p class="field-hint" id="near-me-hint"></p>
       </div>
 
+      <div class="field">
+        <label class="check">
+          <input type="checkbox" id="f-coverage">
+          <span>
+            Show searched areas
+            <small class="field-hint">
+              Where people have already looked, in {{ cell_m|int }} m squares.
+            </small>
+          </span>
+        </label>
+      </div>
+
       <div class="map-legend">
         <span><i class="dot dot--missing"></i> Missing</span>
         <span><i class="dot dot--found"></i> Found</span>
         <span><i class="dot dot--reunited"></i> Reunited</span>
+        <span><i class="dot dot--searched"></i> Searched</span>
       </div>
       <p class="field-hint">
         Missing pets are shown at an approximate location, because "last seen"
@@ -113,7 +126,8 @@
     window.PETMAP = {
       bounds: {{ bounds | tojson }},
       centre: {{ centre | tojson }},
-      feedUrl: "{{ url_for('pets.api_pets') }}"
+      feedUrl: "{{ url_for('pets.api_pets') }}",
+      coverageUrl: "{{ url_for('tracks.api_coverage') }}"
     };
   </script>
   <script src="{{ url_for('static', filename='petmap/map.js') }}"></script>

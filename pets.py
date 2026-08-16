@@ -43,7 +43,7 @@ from mailer import send_owner_message, send_sighting_alert
 from models import (
     MICROCHIP, REPORT_FOUND, REPORT_MISSING, REPORT_TYPES, SEXES, SIZES,
     SPECIES, STATUS_ACTIVE, STATUS_CLOSED, STATUS_REUNITED, STATUSES,
-    ContactMessage, Pet, PetPhoto, Sighting, recent_count,
+    TRACK_SOURCES, ContactMessage, Pet, PetPhoto, Sighting, recent_count,
 )
 from services import geocode as geocode_service
 from services import images
@@ -444,6 +444,9 @@ def pet_detail(pet_id: int):
         size_label=SIZES.get(pet.size or "", ""),
         chip_label=MICROCHIP.get(pet.microchipped, "Unknown"),
         bounds=current_app.config["TAS_BOUNDS"],
+        track_sources=TRACK_SOURCES,
+        cell_m=current_app.config["COVERAGE_CELL_M"],
+        trim_m=int(current_app.config["TRACK_TRIM_M"]),
     )
 
 

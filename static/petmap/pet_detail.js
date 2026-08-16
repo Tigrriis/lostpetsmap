@@ -42,6 +42,91 @@
     map.fitBounds(L.latLngBounds(points).pad(0.35));
   }
 
+  // Exposed so search_track.js can draw the live trace on this same map.
+  window.PM_detailMap = map;
+
+  // ---------- Search coverage ----------
+
+  var coverageLayer = L.layerGroup().addTo(map);
+  var lineLayer = L.layerGroup().addTo(map);
+
+  function renderTracks(data) {
+    coverageLayer.clearLayers();
+    lineLayer.clearLayers();
+
+    (data.cells || []).forEach(function (b) {
+      // b is [south, west, north, east].
+      L.rectangle([[b[0], b[1]], [b[2], b[3]]], {
+        className: "coverage-cell",
+        color: "#1c9c56", weight: 0, fillOpacity: 0.22, interactive: false
+      }).addTo(coverageLayer);
+    });
+
+    ((data.lines && data.lines.features) || []).forEach(function (f) {
+      var latlngs = f.geometry.coordinates.map(function (c) { return [c[1], c[0]]; });
+      var p = f.properties;
+      L.polyline(latlngs, {
+        color: p.source === "drone" ? "#7b5cd6" : "#1c9c56",
+        weight: 3, opacity: 0.85
+      }).addTo(lineLayer).bindPopup(
+        "<strong>" + U.escapeHtml(p.source_label) + "</strong><br>" +
+        U.escapeHtml(p.searcher) + " · " + U.escapeHtml(p.distance) +
+        " · " + U.escapeHtml(p.duration));
+    });
+
+    renderTrackList(data.tracks || []);
+  }
+
+  function renderTrackList(tracks) {
+    var list = document.getElementById("track-list");
+    var count = document.getElementById("track-count");
+    if (!list) return;
+    count.textContent = tracks.length;
+
+    if (!tracks.length) {
+      list.innerHTML = '<p class="muted">No searches logged yet.</p>';
+      return;
+    }
+
+    list.innerHTML = "";
+    tracks.forEach(function (t) {
+      var row = document.createElement("div");
+      row.className = "track-row";
+
+      var dot = document.createElement("i");
+      dot.className = "dot";
+      dot.style.background = t.source === "drone" ? "#7b5cd6" : "#1c9c56";
+      row.appendChild(dot);
+
+      var body = document.createElement("div");
+      var head = document.createElement("strong");
+      head.textContent = t.source_label + " · " + t.distance;
+      var meta = document.createElement("small");
+      // started_label is formatted server-side in Australia/Hobart, matching
+      // every other time on the page.
+      meta.textContent = [
+        t.started_label, t.duration, t.searcher, t.cell_count + " cells"
+      ].filter(Boolean).join(" · ");
+      body.appendChild(head);
+      body.appendChild(document.createElement("br"));
+      body.appendChild(meta);
+      if (t.notes) {
+        var note = document.createElement("em");
+        note.className = "track-row__note";
+        note.textContent = t.notes;
+        body.appendChild(document.createElement("br"));
+        body.appendChild(note);
+      }
+      row.appendChild(body);
+      list.appendChild(row);
+    });
+  }
+
+  fetch(CFG.urls.tracks, { headers: { "Accept": "application/json" } })
+    .then(function (r) { return r.json(); })
+    .then(renderTracks)
+    .catch(function () { /* coverage is additive; the map still works without it */ });
+
   // ---------- Sighting picker ----------
 
   var pickerEl = document.getElementById("sighting-map");

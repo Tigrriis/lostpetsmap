@@ -61,6 +61,15 @@ SPECIES = {
     "other": "Other",
 }
 
+SOURCE_FOOT = "on_foot"
+SOURCE_VEHICLE = "vehicle"
+SOURCE_DRONE = "drone"
+TRACK_SOURCES = {
+    SOURCE_FOOT: "On foot",
+    SOURCE_VEHICLE: "By vehicle",
+    SOURCE_DRONE: "Drone",
+}
+
 SEXES = {"unknown": "Unknown", "female": "Female", "male": "Male"}
 SIZES = {"": "Not stated", "small": "Small", "medium": "Medium", "large": "Large"}
 MICROCHIP = {"unknown": "Unknown", "yes": "Microchipped", "no": "Not microchipped"}
@@ -338,6 +347,111 @@ class Sighting(db.Model):
     @property
     def has_photo(self) -> bool:
         return self.photo is not None
+
+
+class SearchTrack(db.Model):
+    """Where somebody looked, and when.
+
+    One model for both producers: a volunteer walking with their phone, and a
+    drone flight reconstructed from the GPS in its photos. They differ only in
+    ``source`` and in how the points arrive, so the storage, privacy rules and
+    map rendering are shared.
+
+    Two representations are kept, deliberately:
+
+    * ``points`` — the trimmed GPS line, shown only to the searcher, the pet's
+      owner, and moderators. Both ends are cut *before* this is written (see
+      services.coverage.trim_ends), because a track otherwise begins at
+      somebody's front door.
+    * ``cells`` — the 50 m grid squares the line passes through. This is what
+      the public map draws. Precomputing it means rendering coverage never has
+      to decompress a single track.
+
+    A track is only published once finished; while it is running it belongs to
+    its author alone.
+    """
+
+    __tablename__ = "search_tracks"
+    __table_args__ = (
+        db.Index("ix_tracks_bbox", "min_lat", "min_lng", "max_lat", "max_lng"),
+        db.Index("ix_tracks_visible", "is_removed", "finished_at"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    pet_id = db.Column(db.Integer, db.ForeignKey("pets.id"), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+
+    source = db.Column(db.String(16), nullable=False, default=SOURCE_FOOT,
+                       server_default=SOURCE_FOOT)
+    notes = db.Column(db.String(500), nullable=True)
+
+    started_at = db.Column(db.DateTime(timezone=True), nullable=False, index=True)
+    # Null while the search is in progress. Also the "is this published?" flag.
+    finished_at = db.Column(db.DateTime(timezone=True), nullable=True, index=True)
+
+    points = db.Column(db.LargeBinary, nullable=True)   # zlib JSON [[lat,lng,ts],…]
+    cells = db.Column(db.LargeBinary, nullable=True)    # zlib JSON [[ix,iy],…]
+    point_count = db.Column(db.Integer, nullable=False, default=0)
+    cell_count = db.Column(db.Integer, nullable=False, default=0)
+    # Measured on the full path before trimming. A scalar distance discloses
+    # nothing about location, and "we walked 4 km" is the stat people want.
+    distance_m = db.Column(db.Float, nullable=False, default=0.0)
+
+    # Denormalised extent of the *trimmed* path, so the map can find tracks in
+    # a viewport without decompressing every row.
+    min_lat = db.Column(db.Float, nullable=True)
+    min_lng = db.Column(db.Float, nullable=True)
+    max_lat = db.Column(db.Float, nullable=True)
+    max_lng = db.Column(db.Float, nullable=True)
+
+    created_at = db.Column(db.DateTime(timezone=True), default=_utcnow, index=True)
+
+    is_removed = db.Column(db.Boolean, nullable=False, default=False,
+                           server_default=db.false(), index=True)
+    removed_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    removed_reason = db.Column(db.String(500), nullable=True)
+    removed_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    pet = db.relationship("Pet", backref=db.backref("tracks", lazy="dynamic",
+                                                    cascade="all, delete-orphan"))
+    searcher = db.relationship("User", foreign_keys=[user_id])
+    removed_by = db.relationship("User", foreign_keys=[removed_by_id])
+
+    @property
+    def is_live(self) -> bool:
+        return self.finished_at is None and not self.is_removed
+
+    @property
+    def is_published(self) -> bool:
+        return self.finished_at is not None and not self.is_removed
+
+    @property
+    def duration_s(self) -> int:
+        start, end = _as_aware(self.started_at), _as_aware(self.finished_at)
+        if not start:
+            return 0
+        return max(0, int(((end or _utcnow()) - start).total_seconds()))
+
+    @property
+    def duration_label(self) -> str:
+        minutes = self.duration_s // 60
+        if minutes < 60:
+            return f"{minutes} min"
+        return f"{minutes // 60}h {minutes % 60:02d}m"
+
+    @property
+    def distance_label(self) -> str:
+        if self.distance_m < 1000:
+            return f"{int(self.distance_m)} m"
+        return f"{self.distance_m / 1000:.1f} km"
+
+    def may_see_line(self, user) -> bool:
+        """The precise line is for the searcher, the pet's owner, and moderators."""
+        if not user or not getattr(user, "is_authenticated", False):
+            return False
+        return (user.id == self.user_id
+                or user.id == self.pet.user_id
+                or user.is_moderator)
 
 
 class ContactMessage(db.Model):

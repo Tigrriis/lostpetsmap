@@ -57,7 +57,40 @@ class Config:
     # public map shows a randomised point within this radius unless the owner
     # opts out. The offset is generated once and stored: re-rolling it on every
     # edit would let anyone watching average the samples back to the true point.
-    BLUR_RADIUS_M = float(os.environ.get("BLUR_RADIUS_M", "250"))
+    #
+    # 100 m is a deliberate trade, chosen so the map is precise enough to be
+    # worth searching from. It is roughly a street block — narrower than the
+    # 250 m this started at, and correspondingly less concealing.
+    BLUR_RADIUS_M = float(os.environ.get("BLUR_RADIUS_M", "100"))
+
+    # ── Search coverage ────────────────────────────────────────────────────
+    # Public search tracks are published as grid cells rather than as the raw
+    # GPS line: "was this street covered?" is the question people actually
+    # have, cells merge cleanly across several searchers, and a precise trace
+    # of everyone's movements is not something this site needs to publish.
+    # The owner of the report, the searcher, and moderators see the real line.
+    #
+    # Note the interaction with BLUR_RADIUS_M above: at 50 m the coverage grid
+    # resolves finer than the location blur, so a concentrated search does hint
+    # at where the pet actually went missing. That is an accepted trade, not an
+    # oversight — raise this or lower the blur if it ever proves too revealing.
+    COVERAGE_CELL_M = float(os.environ.get("COVERAGE_CELL_M", "50"))
+    # Cells are laid out on a single state-wide grid keyed to this latitude, so
+    # every track snaps to the same cells and coverage from different searchers
+    # lines up instead of interleaving.
+    COVERAGE_GRID_REF_LAT = -42.15
+
+    # A track usually starts and ends at the searcher's car or front door.
+    # Both ends are trimmed before anything is stored — never merely hidden at
+    # render time, so there is no exact copy to leak later. Short walks trim by
+    # fraction instead, so something always survives.
+    TRACK_TRIM_M = 200.0
+    TRACK_TRIM_MAX_FRACTION = 0.25
+
+    TRACK_MAX_POINTS = 20_000          # ~28 h at one fix every 5 s
+    TRACK_MAX_BATCH_POINTS = 500       # per append request
+    TRACK_MAX_ACTIVE_PER_USER = 3      # unfinished tracks before we say no
+    COVERAGE_MAX_CELLS = 20_000        # cells returned by one map request
 
     # ── Limits ─────────────────────────────────────────────────────────────
     MAX_PHOTOS_PER_PET = 4

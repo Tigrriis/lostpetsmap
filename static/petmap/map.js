@@ -277,6 +277,52 @@
     }
   });
 
+  // ---------- Coverage layer ----------
+  // Cells only, for everyone — the main map never carries anybody's GPS line.
+  // Off by default: it is a second, heavier request, and most visitors are
+  // looking for pets rather than auditing where volunteers have been.
+
+  var coverageLayer = L.layerGroup();
+  var coveragePending = null;
+  var coverageOn = false;
+
+  function refreshCoverage() {
+    if (!coverageOn) return;
+    if (coveragePending) coveragePending.abort();
+    coveragePending = new AbortController();
+
+    var b = map.getBounds();
+    var url = CFG.coverageUrl + "?bbox=" +
+              [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()].join(",");
+
+    fetch(url, { signal: coveragePending.signal, headers: { "Accept": "application/json" } })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        coveragePending = null;
+        coverageLayer.clearLayers();
+        (data.cells || []).forEach(function (c) {
+          L.rectangle([[c[0], c[1]], [c[2], c[3]]], {
+            color: "#1c9c56", weight: 0, fillOpacity: 0.22, interactive: false
+          }).addTo(coverageLayer);
+        });
+        if (data.truncated) status("Too much search coverage to draw here — zoom in.");
+      })
+      .catch(function (err) {
+        if (err.name !== "AbortError") coveragePending = null;
+      });
+  }
+
+  document.getElementById("f-coverage").addEventListener("change", function (e) {
+    coverageOn = e.target.checked;
+    if (coverageOn) {
+      map.addLayer(coverageLayer);
+      refreshCoverage();
+    } else {
+      map.removeLayer(coverageLayer);
+      coverageLayer.clearLayers();
+    }
+  });
+
   // ---------- Collapsible filter panel (mobile) ----------
 
   var filtersToggle = document.getElementById("filters-toggle");
@@ -300,5 +346,6 @@
   // ---------- Go ----------
 
   map.on("moveend", scheduleRefresh);
+  map.on("moveend", refreshCoverage);
   refresh();
 })();

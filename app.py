@@ -29,6 +29,7 @@ from models import REPORT_TYPES, SPECIES, STATUSES
 from moderation import moderation_bp
 from pets import pets_bp
 from services.localtime import format_local, humanise_age, to_local
+from tracks import tracks_bp
 
 
 def create_app(overrides: dict | None = None) -> Flask:
@@ -48,6 +49,7 @@ def create_app(overrides: dict | None = None) -> Flask:
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(pets_bp)
+    app.register_blueprint(tracks_bp)
     app.register_blueprint(moderation_bp)
 
     _register_template_helpers(app)
@@ -81,6 +83,7 @@ def _register_routes(app: Flask) -> None:
             bounds=app.config["TAS_BOUNDS"],
             centre=app.config["TAS_CENTRE"],
             default_days=app.config["DEFAULT_ACTIVE_DAYS"],
+            cell_m=app.config["COVERAGE_CELL_M"],
         )
 
     @app.route("/safety")
