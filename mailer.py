@@ -18,6 +18,17 @@ import config
 
 RESEND_ENDPOINT = "https://api.resend.com/emails"
 
+# Must be set, and must not look like a script runtime. api.resend.com sits
+# behind Cloudflare, which rejects urllib's default "Python-urllib/3.x" with a
+# 403 and Cloudflare error 1010 ("browser signature banned") before the request
+# ever reaches Resend. Verified directly: the same POST returns 403/1010 with
+# that agent and a clean 401 "API key is invalid" with this one.
+#
+# The failure is nasty because it looks like an auth problem in the log while
+# the key is perfectly good, and because mail failures here are swallowed by
+# design — so it presents as "no email is arriving" and nothing else.
+USER_AGENT = "PetMap/1.0 (+https://lostpetsmap.com)"
+
 
 def send_email(to: str, subject: str, body: str, reply_to: str | None = None) -> None:
     """Deliver a plain-text email, or log it if Resend isn't configured."""
@@ -42,6 +53,7 @@ def _resend_send(to: str, subject: str, body: str, reply_to: str | None) -> None
         headers={
             "Authorization": f"Bearer {config.RESEND_API_KEY}",
             "Content-Type": "application/json",
+            "User-Agent": USER_AGENT,      # see the note above — not optional
         },
         method="POST",
     )
