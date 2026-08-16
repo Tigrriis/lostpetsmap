@@ -215,13 +215,12 @@
       if (localStorage.getItem(ACK_KEY) === "1") return true;
     } catch (e) { /* private mode: ask every time, which is the safe default */ }
 
+    // Same wording as the banner above the button, so the two cannot drift.
     var ok = window.confirm(
-      "Before you start:\n\n" +
-      "Your search track becomes part of a public coverage map.\n\n" +
-      "Don't start recording at your home address. Get to the search area " +
-      "first, and stop recording before you head back. Only about " +
-      TRIM_M + " m is trimmed from each end — that is not enough to hide " +
-      "where you live.\n\n" +
+      "Don't start recording at your home.\n\n" +
+      "Your track becomes part of a public coverage map. Walk or drive to " +
+      "the search area first, then press start. Press stop before you head " +
+      "back. Only about " + TRIM_M + " m is trimmed from each end.\n\n" +
       "Start recording now?");
     if (ok) {
       try { localStorage.setItem(ACK_KEY, "1"); } catch (e) { /* fine */ }

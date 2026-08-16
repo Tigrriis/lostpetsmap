@@ -181,8 +181,11 @@ def test_recording_form_warns_against_starting_at_home(app, client, user):
 
     assert "Don't start recording at your home" in body
     assert "safety-warning" in body
-    # It must not overstate what the trim does.
-    assert "not</em> enough to hide an address" in body
+    assert "Walk or drive to the" in body and "search area first" in body
+    assert "Press stop before you head back" in body
+    # The trim figure must come from config, not be written into the copy —
+    # quoting a stale number here is how the warning starts lying.
+    assert f"about {int(app.config['TRACK_TRIM_M'])} m is trimmed" in body
 
 
 def test_main_map_coverage_never_returns_lines(app, client, user):
