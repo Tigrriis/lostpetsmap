@@ -291,6 +291,13 @@ body { background: var(--paper); color: var(--ink-800); }
   border-radius: 50%;
   background: var(--panel);
 }
+/* Matches .pin-icon--sighting on the map: a rotated square. */
+.dot--sighting {
+  background: var(--status-sighting);
+  border-radius: 2px;
+  width: 9px; height: 9px;
+  transform: rotate(45deg);
+}
 .dot--searched { background: var(--status-coverage); opacity: 0.45; border-radius: 2px; }
 
 /* ------------------------------------------------- SEARCH COVERAGE ------- */

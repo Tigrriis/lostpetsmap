@@ -84,10 +84,15 @@
 
   // ---------- Rendering ----------
 
+  function titleFor(p) {
+    if (p.kind === "sighting") return U.escapeHtml(p.species_label) + " sighted";
+    return p.name ? U.escapeHtml(p.name)
+                  : (p.report_type === "missing" ? "Missing " : "Found ") +
+                    U.escapeHtml(p.species_label).toLowerCase();
+  }
+
   function popupHtml(p) {
-    var title = p.name ? U.escapeHtml(p.name)
-                       : (p.report_type === "missing" ? "Missing " : "Found ") +
-                         U.escapeHtml(p.species_label).toLowerCase();
+    var title = titleFor(p);
     var html = '<div class="pet-popup">';
     if (p.thumb_url) {
       html += '<img class="pet-popup__img" src="' + p.thumb_url + '" alt="">';
@@ -97,6 +102,7 @@
     html += '<div class="pet-popup__meta">' + U.escapeHtml(p.species_label);
     if (p.breed) html += " · " + U.escapeHtml(p.breed);
     if (p.colour) html += " · " + U.escapeHtml(p.colour);
+    if (p.description) html += " · " + U.escapeHtml(p.description);
     html += "</div>";
     html += '<div class="pet-popup__meta">' +
             (p.locality ? U.escapeHtml(p.locality) + " · " : "") +
@@ -104,7 +110,8 @@
     if (p.approximate) {
       html += '<div class="pet-popup__note">Approximate location</div>';
     }
-    html += '<a class="btn btn--primary btn--sm" href="' + p.url + '">Open report</a>';
+    html += '<a class="btn btn--primary btn--sm" href="' + p.url + '">' +
+            (p.kind === "sighting" ? "Open sighting" : "Open report") + "</a>";
     html += "</div></div>";
     return html;
   }
@@ -119,7 +126,9 @@
       var marker = L.marker([coords[1], coords[0]], {
         icon: U.pinIcon(U.markerColour(p), "pin-icon--" + U.markerShape(p)),
         title: p.name || p.species_label,
-        alt: (p.report_type === "missing" ? "Missing " : "Found ") + p.species_label
+        alt: p.kind === "sighting"
+          ? (p.species_label + " sighted")
+          : ((p.report_type === "missing" ? "Missing " : "Found ") + p.species_label)
       });
       marker.bindPopup(popupHtml(p), { minWidth: 210, maxWidth: 260 });
       marker.petId = p.id;
@@ -170,10 +179,12 @@
 
       var body = document.createElement("div");
       var title = document.createElement("strong");
-      title.textContent = p.name || ((p.report_type === "missing" ? "Missing " : "Found ") +
-                                     p.species_label.toLowerCase());
+      title.textContent = p.kind === "sighting"
+        ? p.species_label + " sighted"
+        : (p.name || ((p.report_type === "missing" ? "Missing " : "Found ") +
+                      p.species_label.toLowerCase()));
       var meta = document.createElement("small");
-      meta.textContent = [p.locality, p.breed || p.colour,
+      meta.textContent = [p.locality, p.breed || p.colour || p.description,
                           p.age_days + "d ago"].filter(Boolean).join(" · ");
       body.appendChild(title);
       body.appendChild(document.createElement("br"));

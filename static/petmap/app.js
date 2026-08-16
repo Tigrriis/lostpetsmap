@@ -141,6 +141,7 @@ window.PetMapUtil = (function () {
 
   /* Colour a marker by what the report is and how it ended. */
   function markerColour(props) {
+    if (props.kind === "sighting") return COLOURS.sighting();
     if (props.status === "reunited") return COLOURS.reunited();
     return props.report_type === "missing" ? COLOURS.missing() : COLOURS.found();
   }
@@ -149,6 +150,7 @@ window.PetMapUtil = (function () {
      Deliberately mirrors markerColour branch for branch: a pin whose shape and
      colour disagreed would be worse than either alone. */
   function markerShape(props) {
+    if (props.kind === "sighting") return "sighting";
     if (props.status === "reunited") return "reunited";
     return props.report_type === "missing" ? "missing" : "found";
   }

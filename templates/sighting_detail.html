@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}{{ species_label }} sighted{% if sighting.description %} — {{ sighting.description[:40] }}{% endif %} · {{ SITE_NAME }}{% endblock %}
+{% block description %}An unidentified {{ species_label|lower }} seen in Tasmania on {{ sighting.seen_at | localdate }}.{% endblock %}
+{% block main_class %}page{% endblock %}
+
+{% block head_links %}
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+{% endblock %}
+
+{% block content %}
+<header class="page-head">
+  <div>
+    <div class="badges"><span class="tag">Sighting</span>
+      <span class="tag">{{ species_label }}</span></div>
+    <h1>{{ species_label }} seen{% if sighting.description %} — {{ sighting.description }}{% endif %}</h1>
+    <p class="detail__sub">
+      {{ sighting.seen_at | localtime }}
+      <span class="muted">({{ sighting.seen_at | ago }})</span>
+      · reported by {{ sighting.reporter.public_name }}
+    </p>
+  </div>
+</header>
+
+<div class="banner">
+  Nobody has identified this animal. It isn't a found report — whoever saw it
+  didn't catch it — so there's no one holding it.
+</div>
+
+<section class="panel">
+  <div class="panel__body">
+    {% if sighting.has_photo %}
+      <img class="detail__hero"
+           src="{{ url_for('pets.sighting_photo', sighting_id=sighting.id) }}"
+           alt="{{ species_label }} sighted">
+    {% endif %}
+    {% if sighting.note %}<p class="detail__desc">{{ sighting.note }}</p>{% endif %}
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel__head">
+    <span class="panel__title">Seen here</span>
+    <span class="tag">Exact location</span>
+  </div>
+  <div class="panel__body">
+    <div id="detail-map" class="detail-map" role="application" aria-label="Where it was seen"></div>
+    <p class="field-hint">
+      Shown exactly. Unlike a missing pet's "last seen", a street where a stray
+      was spotted isn't anybody's home address.
+    </p>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel__head">
+    <span class="panel__title">Missing {{ species_label|lower }}s reported nearby</span>
+    <span class="tag">{{ nearby|length }}</span>
+  </div>
+  <div class="panel__body">
+    {% if nearby %}
+      <ul class="report-list">
+        {% for p in nearby %}
+          <li class="report-card">
+            <a class="report-card__photo" href="{{ url_for('pets.pet_detail', pet_id=p.id) }}">
+              {% if p.primary_photo %}
+                <img src="{{ url_for('pets.pet_photo', pet_id=p.id, photo_id=p.primary_photo.id, size='thumb') }}" alt="">
+              {% else %}
+                <span class="report-card__nophoto">no photo</span>
+              {% endif %}
+            </a>
+            <div class="report-card__body">
+              <a class="report-card__title" href="{{ url_for('pets.pet_detail', pet_id=p.id) }}">
+                {{ p.name or 'Missing ' ~ species_label|lower }}{% if p.locality %} · {{ p.locality }}{% endif %}
+              </a>
+              <p class="report-card__meta">
+                Missing since {{ p.last_seen_at | localdate }}
+                {%- if p.colour %} · {{ p.colour }}{% endif %}
+              </p>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+      <p class="field-hint">
+        Is one of these yours? Open your own report and use
+        <strong>Look through possible matches</strong> to add this sighting to it.
+      </p>
+    {% else %}
+      <p class="muted">No missing {{ species_label|lower }}s reported near here.</p>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script>
+    window.PETMAP_DETAIL = {
+      lat: {{ sighting.lat }}, lng: {{ sighting.lng }},
+      approximate: false, reportType: "sighting",
+      status: "active", bounds: {{ bounds | tojson }}, sightings: []
+    };
+  </script>
+  <script src="{{ url_for('static', filename='petmap/sighting_detail.js') }}"></script>
+{% endblock %}

@@ -213,9 +213,43 @@ def api_pets():
         rows = [p for p in rows
                 if haversine_m(near[0], near[1], p.public_lat, p.public_lng) <= radius_m]
 
+    features = [p.to_feature() for p in rows]
+
+    # Standalone sightings ride the same feed. They are a different table but
+    # the same question — "what has been seen around here?" — so one request
+    # answers it and the client keeps one render path. Suppressed when the user
+    # has narrowed to missing or found, since those are report types and a
+    # sighting is neither.
+    if report_type not in REPORT_TYPES and status in ("active", "all"):
+        sq = (Sighting.query
+              .filter(Sighting.is_removed.is_(False))
+              .filter(Sighting.pet_id.is_(None)))
+        if species:
+            sq = sq.filter(Sighting.species.in_(species))
+        if days > 0:
+            sq = sq.filter(Sighting.seen_at >= now_utc() - timedelta(days=days))
+        if text:
+            like = f"%{text}%"
+            sq = sq.filter(or_(Sighting.description.ilike(like),
+                               Sighting.note.ilike(like)))
+        if bbox:
+            sq = sq.filter(Sighting.lat.between(bbox.south, bbox.north),
+                           Sighting.lng.between(bbox.west, bbox.east))
+        if near and radius_km and radius_km > 0:
+            box = bbox_around(near[0], near[1], radius_km * 1000.0)
+            sq = sq.filter(Sighting.lat.between(box.south, box.north),
+                           Sighting.lng.between(box.west, box.east))
+
+        sightings = sq.order_by(Sighting.seen_at.desc()).limit(limit).all()
+        if near and radius_km and radius_km > 0:
+            radius_m = radius_km * 1000.0
+            sightings = [s for s in sightings
+                         if haversine_m(near[0], near[1], s.lat, s.lng) <= radius_m]
+        features.extend(s.to_feature() for s in sightings)
+
     return jsonify({
         "type": "FeatureCollection",
-        "features": [p.to_feature() for p in rows],
+        "features": features,
         "truncated": truncated,
     })
 
@@ -663,6 +697,42 @@ def new_sighting():
 
     return render_template("sighting_form.html", species=SPECIES,
                            bounds=cfg["TAS_BOUNDS"], centre=cfg["TAS_CENTRE"])
+
+
+@pets_bp.route("/sightings/<int:sighting_id>")
+def sighting_detail(sighting_id: int):
+    """A standalone sighting's own page.
+
+    Exists so a marker on the map has somewhere to lead. Without it an
+    unidentified sighting is a dead end — visible, but impossible to share,
+    link to, or act on.
+    """
+    sighting = db.session.get(Sighting, sighting_id)
+    if sighting is None or sighting.is_removed:
+        abort(404)
+    # A sighting attached to a report belongs on that report's page.
+    if sighting.pet_id:
+        return redirect(url_for("pets.pet_detail", pet_id=sighting.pet_id))
+
+    # Reports this could plausibly belong to, so a reader can join the dots
+    # themselves rather than the owner having to find it first.
+    cfg = current_app.config
+    radius_m = cfg["MATCH_RADIUS_KM"] * 1000
+    box = bbox_around(sighting.lat, sighting.lng, radius_m)
+    nearby = [
+        p for p in Pet.query
+        .filter(Pet.is_removed.is_(False))
+        .filter(Pet.report_type == REPORT_MISSING, Pet.status == STATUS_ACTIVE)
+        .filter(Pet.species == sighting.species)
+        .filter(Pet.public_lat.between(box.south, box.north))
+        .filter(Pet.public_lng.between(box.west, box.east))
+        .order_by(Pet.last_seen_at.desc()).limit(30).all()
+        if haversine_m(sighting.lat, sighting.lng, p.public_lat, p.public_lng) <= radius_m
+    ][:10]
+
+    return render_template("sighting_detail.html", sighting=sighting,
+                           species_label=SPECIES.get(sighting.species, "Animal"),
+                           nearby=nearby, bounds=cfg["TAS_BOUNDS"])
 
 
 @pets_bp.route("/pets/<int:pet_id>/matches")

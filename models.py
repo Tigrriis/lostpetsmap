@@ -326,6 +326,9 @@ class Pet(db.Model):
             "type": "Feature",
             "geometry": {"type": "Point", "coordinates": [lng, lat]},
             "properties": {
+                # Pets and standalone sightings share the map feed; `kind` is
+                # what the client branches on. See Sighting.to_feature.
+                "kind": "pet",
                 "id": self.id,
                 "report_type": self.report_type,
                 "status": self.status,
@@ -413,6 +416,37 @@ class Sighting(db.Model):
     @property
     def has_photo(self) -> bool:
         return self.photo is not None
+
+    @property
+    def is_standalone(self) -> bool:
+        return self.pet_id is None
+
+    def to_feature(self) -> dict:
+        """GeoJSON Feature for the main map, shaped like Pet.to_feature.
+
+        The two share a feed so one bounding-box request returns everything in
+        view and the client keeps a single render path; ``kind`` is what tells
+        them apart. Coordinates are exact and unblurred, which is deliberate and
+        unchanged from sightings elsewhere: a street where a stray was spotted
+        is nobody's home address.
+        """
+        age = max(0, (_utcnow() - (_as_aware(self.seen_at) or _utcnow())).days)
+        return {
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [self.lng, self.lat]},
+            "properties": {
+                "kind": "sighting",
+                "id": self.id,
+                "species": self.species,
+                "species_label": SPECIES.get(self.species, "Animal"),
+                "description": self.description,
+                "note": self.note,
+                "age_days": age,
+                "approximate": False,
+                "thumb_url": f"/sightings/{self.id}/photo" if self.photo else None,
+                "url": f"/sightings/{self.id}",
+            },
+        }
 
 
 class SearchTrack(db.Model):
