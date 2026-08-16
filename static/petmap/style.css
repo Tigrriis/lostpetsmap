@@ -440,6 +440,17 @@ body { background: var(--paper); color: var(--ink-800); }
 }
 .pet-popup .btn { margin-top: var(--sp-2); }
 
+/* Leaflet ships `.leaflet-container a { color: #0078A8 }`. That selector is
+   (0,1,1) and `.btn { color: var(--_fg) }` is only (0,1,0), so every button
+   rendered inside a map popup came out link-blue on its own fill — #0078A8 on
+   the indigo, which is barely legible. Restated here at (0,2,1) so the button's
+   own foreground wins wherever it appears.
+
+   Worth knowing if you add any other control inside a map: Leaflet's anchor
+   styling outranks a single class, so anchors need the extra specificity. */
+.leaflet-container a.btn,
+.leaflet-container a.btn:hover { color: var(--_fg); }
+
 /* Leaflet's own chrome, re-skinned to the token set. */
 .leaflet-popup-content-wrapper,
 .leaflet-popup-tip {
