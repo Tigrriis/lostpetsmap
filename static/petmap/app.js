@@ -16,6 +16,21 @@
     });
   }
 
+  // ---------- Header height ----------
+  // The map fills the viewport below the header, and header height is a style
+  // pack's decision — Arete HUD's was 52px, Soft Product's is 64px. Hard-coding
+  // it meant the map rails overshot the viewport by 12px the moment the pack
+  // changed, so measure it and let the CSS read it back.
+  function measureHeader() {
+    var header = document.querySelector(".app-header");
+    if (!header) return;
+    document.documentElement.style.setProperty(
+      "--header-h", Math.round(header.getBoundingClientRect().height) + "px");
+  }
+  measureHeader();
+  window.addEventListener("resize", measureHeader);
+  window.addEventListener("load", measureHeader);   // after webfonts settle
+
   // ---------- Confirm before destructive submits ----------
   // Any form carrying data-confirm asks first. Keeps the confirmation text next
   // to the action in the template rather than scattered through JS.
@@ -95,10 +110,32 @@ window.PetMapUtil = (function () {
     });
   }
 
+  /* Read a design token. Leaflet needs real colour strings, not var(), so map
+     colours are pulled from the active style pack at draw time rather than
+     hard-coded — that way swapping theme.css re-skins the map too, and dark
+     mode picks up the pack's dark values. */
+  function token(name, fallback) {
+    var value = getComputedStyle(document.documentElement)
+                  .getPropertyValue(name).trim();
+    return value || fallback || "#888";
+  }
+
+  /* The map's semantic palette, in one place. */
+  var COLOURS = {
+    missing:  function () { return token("--danger"); },
+    found:    function () { return token("--accent"); },
+    reunited: function () { return token("--ok"); },
+    coverage: function () { return token("--ok"); },
+    onFoot:   function () { return token("--ok"); },
+    drone:    function () { return token("--blue"); },
+    sighting: function () { return token("--warn"); },
+    live:     function () { return token("--accent"); }
+  };
+
   /* Colour a marker by what the report is and how it ended. */
   function markerColour(props) {
-    if (props.status === "reunited") return "#1c9c56";
-    return props.report_type === "missing" ? "#e0342a" : "#0a9ec2";
+    if (props.status === "reunited") return COLOURS.reunited();
+    return props.report_type === "missing" ? COLOURS.missing() : COLOURS.found();
   }
 
   /* A small circular pin as a divIcon — no image requests, and it recolours
@@ -123,6 +160,8 @@ window.PetMapUtil = (function () {
     addBasemap: addBasemap,
     escapeHtml: escapeHtml,
     markerColour: markerColour,
+    colours: COLOURS,
+    token: token,
     pinIcon: pinIcon,
     csrfToken: csrfToken,
     themeName: themeName

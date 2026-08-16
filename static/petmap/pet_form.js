@@ -37,7 +37,7 @@
     } else {
       marker = L.marker([lat, lng], {
         draggable: true,
-        icon: U.pinIcon("#e0342a", "pin-icon--drag"),
+        icon: U.pinIcon(U.colours.missing(), "pin-icon--drag"),
         keyboard: true,
         alt: "Pet location"
       }).addTo(map);

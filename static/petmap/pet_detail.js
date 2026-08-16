@@ -16,27 +16,37 @@
   // a phone doesn't trap the page.
   map.on("click", function () { map.scrollWheelZoom.enable(); });
 
-  var colour = CFG.reportType === "missing" ? "#e0342a" : "#0a9ec2";
+  // Everything colour-bearing lives in a layer that can be rebuilt, because
+  // the style pack's tokens differ between light and dark — a marker drawn
+  // once would keep its old-mode colour after the theme toggle.
+  var baseLayer = L.layerGroup().addTo(map);
 
-  if (CFG.approximate) {
-    // Draw the uncertainty rather than a false point. A bare marker on a
-    // blurred coordinate reads as precise, which is exactly the wrong message.
-    L.circle([CFG.lat, CFG.lng], {
-      radius: 400, color: colour, weight: 1.5, fillOpacity: 0.12, dashArray: "4 4"
-    }).addTo(map).bindPopup("Somewhere in this area.");
-  } else {
-    L.marker([CFG.lat, CFG.lng], { icon: U.pinIcon(colour) })
-      .addTo(map)
-      .bindPopup(CFG.reportType === "missing" ? "Last seen here" : "Found here");
+  function drawBase() {
+    baseLayer.clearLayers();
+    var colour = CFG.reportType === "missing" ? U.colours.missing() : U.colours.found();
+
+    if (CFG.approximate) {
+      // Draw the uncertainty rather than a false point. A bare marker on a
+      // blurred coordinate reads as precise, which is exactly the wrong message.
+      L.circle([CFG.lat, CFG.lng], {
+        radius: 400, color: colour, weight: 1.5, fillOpacity: 0.12, dashArray: "4 4"
+      }).addTo(baseLayer).bindPopup("Somewhere in this area.");
+    } else {
+      L.marker([CFG.lat, CFG.lng], { icon: U.pinIcon(colour) })
+        .addTo(baseLayer)
+        .bindPopup(CFG.reportType === "missing" ? "Last seen here" : "Found here");
+    }
+
+    (CFG.sightings || []).forEach(function (s) {
+      L.marker([s.lat, s.lng], { icon: U.pinIcon(U.colours.sighting(), "pin-icon--sighting") })
+        .addTo(baseLayer)
+        .bindPopup("Sighting · " + U.escapeHtml(s.when));
+    });
   }
+  drawBase();
 
   var points = [[CFG.lat, CFG.lng]];
-  (CFG.sightings || []).forEach(function (s) {
-    L.marker([s.lat, s.lng], { icon: U.pinIcon("#e2820b", "pin-icon--sighting") })
-      .addTo(map)
-      .bindPopup("Sighting · " + U.escapeHtml(s.when));
-    points.push([s.lat, s.lng]);
-  });
+  (CFG.sightings || []).forEach(function (s) { points.push([s.lat, s.lng]); });
 
   if (points.length > 1) {
     map.fitBounds(L.latLngBounds(points).pad(0.35));
@@ -58,7 +68,7 @@
       // b is [south, west, north, east].
       L.rectangle([[b[0], b[1]], [b[2], b[3]]], {
         className: "coverage-cell",
-        color: "#1c9c56", weight: 0, fillOpacity: 0.22, interactive: false
+        color: U.colours.coverage(), weight: 0, fillOpacity: 0.22, interactive: false
       }).addTo(coverageLayer);
     });
 
@@ -66,7 +76,7 @@
       var latlngs = f.geometry.coordinates.map(function (c) { return [c[1], c[0]]; });
       var p = f.properties;
       L.polyline(latlngs, {
-        color: p.source === "drone" ? "#7b5cd6" : "#1c9c56",
+        color: p.source === "drone" ? U.colours.drone() : U.colours.onFoot(),
         weight: 3, opacity: 0.85
       }).addTo(lineLayer).bindPopup(
         "<strong>" + U.escapeHtml(p.source_label) + "</strong><br>" +
@@ -95,7 +105,7 @@
 
       var dot = document.createElement("i");
       dot.className = "dot";
-      dot.style.background = t.source === "drone" ? "#7b5cd6" : "#1c9c56";
+      dot.style.background = t.source === "drone" ? U.colours.drone() : U.colours.onFoot();
       row.appendChild(dot);
 
       var body = document.createElement("div");
@@ -122,10 +132,18 @@
     });
   }
 
+  var lastTrackData = null;
+
   fetch(CFG.urls.tracks, { headers: { "Accept": "application/json" } })
     .then(function (r) { return r.json(); })
-    .then(renderTracks)
+    .then(function (data) { lastTrackData = data; renderTracks(data); })
     .catch(function () { /* coverage is additive; the map still works without it */ });
+
+  // Repaint on a theme switch, from the cached response rather than refetching.
+  window.addEventListener("petmap-theme", function () {
+    drawBase();
+    if (lastTrackData) renderTracks(lastTrackData);
+  });
 
   // ---------- Sighting picker ----------
 
@@ -159,7 +177,7 @@
       pickerMarker.setLatLng([lat, lng]);
     } else {
       pickerMarker = L.marker([lat, lng], {
-        draggable: true, icon: U.pinIcon("#e2820b", "pin-icon--drag")
+        draggable: true, icon: U.pinIcon(U.colours.sighting(), "pin-icon--drag")
       }).addTo(picker);
       pickerMarker.on("dragend", function () {
         var p = pickerMarker.getLatLng();

@@ -1,8 +1,13 @@
 /* ============================================================================
    PetMap — app styles.
-   Sits on top of shared/theme.css + shared/components.css (the Arete HUD
-   token set), so everything here is expressed in those custom properties and
-   inherits the light/dark switch for free.
+   Sits on top of shared/theme.css + shared/components.css, which are a
+   drop-in style pack from Tigrriis/style-tests (currently "Soft Product").
+   Everything here is expressed in that pack's custom properties, so swapping
+   those two files re-skins the app without touching this one.
+
+   Rule of thumb when editing: no hex codes, no hard-coded radii, no
+   text-transform. A pack owns those. Anything hard-coded here is a bug that
+   only surfaces the next time the pack changes.
    ============================================================================ */
 
 /* ------------------------------------------------------------ SHELL ------ */
@@ -10,7 +15,15 @@
 body { background: var(--paper); color: var(--ink-800); }
 
 .app-nav { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
-.app-nav .nav-link { color: var(--console-fg); }
+
+/* Deliberately no colour override on the header nav. Arete HUD's header was a
+   dark console bar so it needed --console-fg; Soft Product's is a light panel,
+   where that same rule made the links near-invisible. Let the pack's own
+   .btn--ghost decide, and let a pack with a dark header handle it in the pack. */
+
+/* The contract has no .accent primitive, so the brand highlight lives here.
+   It was silently doing nothing before — no pack ever defined it. */
+.app-header__logo .accent { color: var(--accent); }
 
 .page {
   max-width: 62rem;
@@ -32,7 +45,15 @@ body { background: var(--paper); color: var(--ink-800); }
   font-size: var(--fs-5);
   letter-spacing: -0.01em;
 }
-.muted { color: var(--ink-500); }
+/* --ink-500 on a light surface measures about 3.98:1 in the Soft Product pack,
+   just under the 4.5:1 AA floor for body text. Secondary text steps down to
+   --ink-600 here instead. This is a pack bug, not an app one — worth fixing in
+   Tigrriis/style-tests so every app inherits it; until then this override, and
+   the .app-header__sub one below, keep this app accessible. Dark mode is fine
+   and needs no equivalent. */
+.muted,
+.field-hint,
+.app-header__sub { color: var(--ink-600); }
 .req { color: var(--danger); }
 
 .site-footer {
@@ -43,7 +64,7 @@ body { background: var(--paper); color: var(--ink-800); }
   padding: var(--sp-4);
   border-top: 1px solid var(--line);
   font-size: var(--fs-1);
-  color: var(--ink-500);
+  color: var(--ink-600);
 }
 .site-footer a { color: var(--accent-ink); }
 
@@ -96,7 +117,9 @@ body { background: var(--paper); color: var(--ink-800); }
   /* Filters | map | results. The map takes whatever is left. */
   grid-template-columns: 17rem minmax(0, 1fr) 19rem;
   gap: 0;
-  height: calc(100vh - 52px);
+  /* --header-h is measured by app.js, because header height belongs to the
+     style pack. The fallback only applies for the instant before scripts run. */
+  height: calc(100vh - var(--header-h, 64px));
 }
 .map-filters, .map-results {
   border-radius: 0;
@@ -125,14 +148,17 @@ body { background: var(--paper); color: var(--ink-800); }
   max-width: 90%;
   text-align: center;
 }
-.map-status.is-error { border-color: var(--danger); color: #ffb4ae; }
+/* The status pill sits on a --console-* surface, which the contract keeps dark
+   in both modes — so the error state signals with the border and keeps the
+   always-light console foreground. A --danger text colour would be unreadable
+   here in one mode or the other. */
+.map-status.is-error { border-color: var(--danger); border-width: 2px; }
 
 /* Filter chips */
 .chipset { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
 .chip {
   font: 500 var(--fs-1)/1 var(--font-ui);
   letter-spacing: var(--tracking-cap);
-  text-transform: uppercase;
   padding: var(--sp-2) var(--sp-3);
   border: 1px solid var(--line-strong);
   background: var(--panel-2);
@@ -157,7 +183,7 @@ body { background: var(--paper); color: var(--ink-800); }
   padding-top: var(--sp-3);
   border-top: 1px solid var(--line);
   font-size: var(--fs-1);
-  color: var(--ink-500);
+  color: var(--ink-600);
 }
 .dot {
   display: inline-block;
@@ -183,7 +209,7 @@ body { background: var(--paper); color: var(--ink-800); }
   border-bottom: 1px solid var(--line);
 }
 .track-row .dot { margin-top: 5px; }
-.track-row small { color: var(--ink-500); font-size: var(--fs-0); }
+.track-row small { color: var(--ink-600); font-size: var(--fs-0); }
 .track-row__note { color: var(--ink-600); font-size: var(--fs-1); }
 
 .search-controls {
@@ -226,7 +252,7 @@ body { background: var(--paper); color: var(--ink-800); }
 .live-status {
   font-family: var(--font-mono);
   font-size: var(--fs-1);
-  color: var(--ink-500);
+  color: var(--ink-600);
   margin: 0 0 var(--sp-3);
 }
 .live-status.is-error { color: var(--danger); }
@@ -255,20 +281,21 @@ body { background: var(--paper); color: var(--ink-800); }
   background: var(--panel-3);
   border: 1px solid var(--line);
 }
-.result-item small { color: var(--ink-500); font-size: var(--fs-0); }
+.result-item small { color: var(--ink-600); font-size: var(--fs-0); }
 .result-item .dot { margin: 0; }
 
 /* Leaflet pins */
+/* The ring separates a pin from the basemap, which swaps light/dark with the
+   theme — so it tracks --panel rather than a fixed white. */
 .pin-icon__dot {
   display: block;
   width: 16px; height: 16px;
   margin: 3px;
   border-radius: 50%;
-  border: 2px solid #fff;
-  box-shadow: 0 1px 4px rgba(0,0,0,.45);
+  border: 2px solid var(--panel);
+  box-shadow: var(--shadow-2);
 }
 .pin-icon--drag .pin-icon__dot { width: 20px; height: 20px; margin: 1px; }
-[data-theme="dark"] .pin-icon__dot { border-color: #10161d; }
 
 .pet-popup { display: flex; gap: var(--sp-3); }
 .pet-popup__img {
@@ -276,11 +303,10 @@ body { background: var(--paper); color: var(--ink-800); }
   border: 1px solid var(--line); flex: none;
 }
 .pet-popup__title { font-weight: 700; font-size: var(--fs-3); }
-.pet-popup__meta  { font-size: var(--fs-1); color: var(--ink-500); }
+.pet-popup__meta  { font-size: var(--fs-1); color: var(--ink-600); }
 .pet-popup__note {
   font-size: var(--fs-0);
   color: var(--warn);
-  text-transform: uppercase;
   letter-spacing: var(--tracking-cap);
   margin-top: 2px;
 }
@@ -304,11 +330,16 @@ body { background: var(--paper); color: var(--ink-800); }
 .leaflet-bar a:hover { background: var(--panel-2); }
 .marker-cluster div {
   background: var(--accent);
-  color: #fff;
+  color: #fff;                 /* text on an accent fill; every pack's accent is dark enough */
   font-family: var(--font-ui);
   font-weight: 700;
 }
-.marker-cluster { background: rgba(10, 158, 194, 0.28); }
+/* Halo derived from the accent rather than a fixed colour, so it follows the
+   pack. The flat fallback covers browsers without color-mix. */
+.marker-cluster { background: var(--accent-soft); }
+@supports (background: color-mix(in srgb, red 50%, transparent)) {
+  .marker-cluster { background: color-mix(in srgb, var(--accent) 28%, transparent); }
+}
 
 /* ---------------------------------------------------------- FORMS -------- */
 
@@ -345,7 +376,7 @@ body { background: var(--paper); color: var(--ink-800); }
 }
 .radio-card input { margin-right: var(--sp-2); }
 .radio-card__title { font-weight: 700; font-size: var(--fs-3); }
-.radio-card__sub { display: block; margin-top: 2px; font-size: var(--fs-1); color: var(--ink-500); }
+.radio-card__sub { display: block; margin-top: 2px; font-size: var(--fs-1); color: var(--ink-600); }
 
 .pin-map-wrap { margin: var(--sp-4) 0; }
 .pin-map {
@@ -357,7 +388,7 @@ body { background: var(--paper); color: var(--ink-800); }
   margin: var(--sp-2) 0 0;
   font-family: var(--font-mono);
   font-size: var(--fs-1);
-  color: var(--ink-500);
+  color: var(--ink-600);
 }
 .pin-readout.is-error { color: var(--danger); }
 
@@ -394,7 +425,7 @@ body { background: var(--paper); color: var(--ink-800); }
   margin-bottom: var(--sp-4);
 }
 .detail__head h1 { margin: var(--sp-2) 0 var(--sp-1); font-size: var(--fs-6); line-height: 1.1; }
-.detail__sub { margin: 0; color: var(--ink-500); font-size: var(--fs-2); }
+.detail__sub { margin: 0; color: var(--ink-600); font-size: var(--fs-2); }
 .detail__owner-actions { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
 .detail__owner-actions form { margin: 0; }
 
@@ -420,20 +451,19 @@ body { background: var(--paper); color: var(--ink-800); }
   place-items: center;
   height: 12rem;
   border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
   color: var(--ink-400);
   font-size: var(--fs-1);
-  text-transform: uppercase;
   letter-spacing: var(--tracking-cap);
 }
 .detail__facts { margin: 0; }
 .detail__desc { white-space: pre-wrap; margin-top: var(--sp-4); }
 .detail__phone { margin-top: var(--sp-4); font-size: var(--fs-4); }
-.detail__footnote { text-align: center; color: var(--ink-500); font-size: var(--fs-1); }
+.detail__footnote { text-align: center; color: var(--ink-600); font-size: var(--fs-1); }
 
 .facts { display: grid; grid-template-columns: auto 1fr; gap: var(--sp-2) var(--sp-4); margin: 0; }
 .facts dt {
   font-size: var(--fs-0);
-  text-transform: uppercase;
   letter-spacing: var(--tracking-cap);
   color: var(--ink-400);
 }
@@ -500,14 +530,14 @@ body { background: var(--paper); color: var(--ink-800); }
   text-decoration: none;
 }
 .report-card__title:hover { color: var(--accent-ink); }
-.report-card__meta { margin: 2px 0 0; font-size: var(--fs-1); color: var(--ink-500); }
+.report-card__meta { margin: 2px 0 0; font-size: var(--fs-1); color: var(--ink-600); }
 .report-card__actions { display: flex; gap: var(--sp-2); align-items: center; }
 .report-card__actions form { margin: 0; }
 
 .empty {
   text-align: center;
   padding: var(--sp-8) var(--sp-4);
-  color: var(--ink-500);
+  color: var(--ink-600);
 }
 .error-code {
   font-family: var(--font-mono);

@@ -256,7 +256,7 @@
         if (nearMeCircle) map.removeLayer(nearMeCircle);
         nearMeCircle = L.circle([lat, lng], {
           radius: 10000, className: "near-me-circle",
-          color: "#0a9ec2", weight: 1, fillOpacity: 0.05
+          color: U.colours.found(), weight: 1, fillOpacity: 0.05
         }).addTo(map);
         map.fitBounds(nearMeCircle.getBounds());
         hint.textContent = "Within 10 km of you. Pan the map to clear.";
@@ -302,7 +302,7 @@
         coverageLayer.clearLayers();
         (data.cells || []).forEach(function (c) {
           L.rectangle([[c[0], c[1]], [c[2], c[3]]], {
-            color: "#1c9c56", weight: 0, fillOpacity: 0.22, interactive: false
+            color: U.colours.coverage(), weight: 0, fillOpacity: 0.22, interactive: false
           }).addTo(coverageLayer);
         });
         if (data.truncated) status("Too much search coverage to draw here — zoom in.");
@@ -347,5 +347,13 @@
 
   map.on("moveend", scheduleRefresh);
   map.on("moveend", refreshCoverage);
+
+  // Marker colours come from the style pack's tokens, which differ between
+  // light and dark — so a theme switch has to repaint them.
+  window.addEventListener("petmap-theme", function () {
+    refresh();
+    refreshCoverage();
+  });
+
   refresh();
 })();

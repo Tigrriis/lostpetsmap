@@ -174,7 +174,7 @@
 
     if (liveLine) liveLine.addLatLng(point);
     else if (window.PM_detailMap) {
-      liveLine = L.polyline([point], { color: "#0a9ec2", weight: 4, opacity: 0.8,
+      liveLine = L.polyline([point], { color: U.colours.live(), weight: 4, opacity: 0.8,
                                        dashArray: "6 4" }).addTo(window.PM_detailMap);
     }
   }
