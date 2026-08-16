@@ -494,9 +494,16 @@ def my_pets():
 
 def _image_response(data: bytes, mimetype: str) -> Response:
     resp = Response(data, mimetype=mimetype)
-    # Immutable in practice: a photo is never edited in place, only added or
-    # deleted, so a long cache is safe and keeps the map cheap to browse.
-    resp.headers["Cache-Control"] = "public, max-age=604800"
+    # A photo is never edited in place — only added or deleted — so it caches
+    # well, and caching it is what keeps a public map cheap to browse.
+    #
+    # Two different lifetimes on purpose. `max-age` is the browser's and can be
+    # long: it only ever affects someone who already loaded the image. `s-maxage`
+    # is the CDN's and is deliberately short, because a shared cache keeps
+    # serving to *new* requesters after a moderator removes a report. Seven days
+    # of that would make removal advisory rather than real; a day bounds it
+    # without giving up the traffic saving. Cloudflare honours s-maxage.
+    resp.headers["Cache-Control"] = "public, max-age=604800, s-maxage=86400"
     resp.headers["Content-Length"] = str(len(data))
     return resp
 

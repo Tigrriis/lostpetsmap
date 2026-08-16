@@ -145,6 +145,42 @@ def test_photos_are_allowed_under_the_cap(app, client, user):
     assert PetPhoto.query.count() == 1
 
 
+# ── Photo caching ──────────────────────────────────────────────────────────
+
+def test_photos_cache_shorter_at_the_cdn_than_in_the_browser(app, client, user):
+    """A shared cache keeps serving to new requesters after a removal.
+
+    The browser TTL only affects someone who already has the image, so it can
+    be long. The CDN TTL must be short enough that a moderator's removal takes
+    effect in hours rather than a week.
+    """
+    pet = make_pet(user)
+    add_photos(pet, 1)
+    photo = PetPhoto.query.one()
+
+    resp = client.get(f"/pets/{pet.id}/photo/{photo.id}")
+    cache = resp.headers["Cache-Control"]
+
+    assert "public" in cache
+    browser = int(cache.split("max-age=")[1].split(",")[0])
+    shared = int(cache.split("s-maxage=")[1].split(",")[0])
+    assert shared < browser, "the CDN must expire before the browser does"
+    assert shared <= 86400, "a removed report should not stay served for days"
+
+
+def test_thumbnail_and_full_size_are_different_responses(app, client, user):
+    """They share a path and differ only by query string, which is the cache key."""
+    pet = make_pet(user)
+    db.session.add(PetPhoto(pet_id=pet.id, data=b"full-image-bytes",
+                            thumb=b"tiny", sort_order=0))
+    db.session.commit()
+    photo = PetPhoto.query.one()
+
+    full = client.get(f"/pets/{pet.id}/photo/{photo.id}").data
+    thumb = client.get(f"/pets/{pet.id}/photo/{photo.id}?size=thumb").data
+    assert full != thumb
+
+
 # ── Metered geocoding budget ───────────────────────────────────────────────
 
 def test_slots_are_consumed_then_refused(app, user):
