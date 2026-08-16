@@ -21,6 +21,7 @@ The privacy model, in one place:
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 
 from flask import (
     Blueprint, abort, current_app, flash, jsonify, redirect, request, url_for,
@@ -127,9 +128,13 @@ def _finalise(track: SearchTrack, trim: bool = True) -> None:
     # under-reporting how far someone walked would be a shame.
     track.distance_m = coverage.path_length_m(points)
 
-    trimmed = (coverage.trim_ends(points, _cfg("TRACK_TRIM_M"),
-                                  _cfg("TRACK_TRIM_MAX_FRACTION"))
-               if trim else [list(p) for p in points])
+    if track.distance_m < _cfg("TRACK_MIN_PUBLISH_M"):
+        trimmed = []          # too short to be coverage; see the config note
+    elif trim:
+        trimmed = coverage.trim_ends(points, _cfg("TRACK_TRIM_M"),
+                                     _cfg("TRACK_TRIM_MAX_FRACTION"))
+    else:
+        trimmed = [list(p) for p in points]
     track.points = coverage.encode_points(trimmed) if trimmed else None
     track.point_count = len(trimmed)
 
@@ -145,6 +150,23 @@ def _finalise(track: SearchTrack, trim: bool = True) -> None:
         track.min_lat = track.min_lng = track.max_lat = track.max_lng = None
 
 
+def _when_label(track: SearchTrack) -> str:
+    """"16 Aug, 1:07 PM – 2:22 PM", collapsing to one time if they match.
+
+    Built here rather than joined in the browser: the start carries a date and
+    the end does not, so comparing the two formatted strings client-side never
+    finds them equal and a zero-length search renders as "2:38 PM – 2:38 PM".
+    For a drone flight both ends come from the photos' own EXIF, so this is the
+    window the area was actually overflown.
+    """
+    started = format_local(track.started_at, "%-d %b, %-I:%M %p")
+    if not track.finished_at:
+        return started
+    finished = format_local(track.finished_at, "%-I:%M %p")
+    same_minute = format_local(track.started_at, "%-I:%M %p") == finished
+    return started if same_minute else f"{started} – {finished}"
+
+
 def _track_summary(track: SearchTrack) -> dict:
     return {
         "id": track.id,
@@ -154,7 +176,13 @@ def _track_summary(track: SearchTrack) -> dict:
         # Formatted server-side in Australia/Hobart, like every other time on
         # the site. Letting the browser format it would show a visitor from
         # interstate a different clock than the report page beside it.
+        #
+        # For a drone flight these two come from the first and last photo's
+        # EXIF, so the pair is the actual window the area was overflown — the
+        # question someone reading the coverage map is really asking.
         "started_label": format_local(track.started_at, "%-d %b, %-I:%M %p"),
+        "finished_label": format_local(track.finished_at, "%-I:%M %p"),
+        "when_label": _when_label(track),
         "started_at": track.started_at.isoformat() if track.started_at else None,
         "finished_at": track.finished_at.isoformat() if track.finished_at else None,
         "duration": track.duration_label,
@@ -291,37 +319,53 @@ def delete_track(track_id: int):
 def import_drone_photos(pet_id: int):
     """Build a flight path from the GPS in a sortie's photos.
 
-    The images themselves are read for their EXIF header and thrown away — see
-    services/exif_track.py. Only coordinates and timestamps are kept.
+    Two ways in, and the difference is where the JPEG is parsed:
+
+    * **JSON** ``{"fixes": [{lat, lng, taken, alt}, …]}`` — the normal path.
+      static/petmap/exif.js reads each photo's header on the device and posts
+      only the coordinates. A 300-frame sortie is a few kilobytes rather than
+      several gigabytes, which is what the 16 MB request cap was rejecting, and
+      the imagery never leaves the operator's machine.
+    * **multipart** ``photos`` — the fallback, for no-JavaScript and small
+      batches. Files are read for EXIF and discarded without being stored, but
+      they do have to cross the wire first, so this is what hits the cap.
     """
     pet = _pet_or_404(pet_id)
+    wants_json = request.is_json
 
-    uploads = [f for f in request.files.getlist("photos") if f and f.filename]
-    if not uploads:
-        flash("Choose the photos from the flight — their GPS is what builds the path.",
-              "error")
+    def fail(message: str, code: int = 400):
+        if wants_json:
+            return jsonify({"error": message}), code
+        flash(message, "error")
         return redirect(url_for("pets.pet_detail", pet_id=pet.id))
 
-    result = exif_track.fixes_from_uploads(uploads)
+    if wants_json:
+        body = request.get_json(silent=True) or {}
+        result = exif_track.fixes_from_client(body.get("fixes"))
+        notes = (body.get("notes") or "").strip()[:500] or None
+    else:
+        uploads = [f for f in request.files.getlist("photos") if f and f.filename]
+        if not uploads:
+            return fail("Choose the photos from the flight — their GPS is what "
+                        "builds the path.")
+        result = exif_track.fixes_from_uploads(uploads)
+        notes = (request.form.get("notes") or "").strip()[:500] or None
+
     points = exif_track.to_points(result.fixes)
     inside = [p for p in points if within_bounds(p[0], p[1], _cfg("TAS_BOUNDS"))]
     outside = len(points) - len(inside)
 
     if len(inside) < 2:
-        flash("Couldn't build a path — fewer than two of those photos had usable "
-              "GPS in Tasmania. Check that geotagging was on.", "error")
-        return redirect(url_for("pets.pet_detail", pet_id=pet.id))
+        return fail("Couldn't build a path — fewer than two of those photos had "
+                    "usable GPS in Tasmania. Check that geotagging was on.")
 
-    started = min(p[2] for p in inside if p[2]) if any(p[2] for p in inside) else None
-    from datetime import datetime, timezone as _tz
-    start_dt = datetime.fromtimestamp(started, _tz.utc) if started else now_utc()
-    end_ts = max(p[2] for p in inside if p[2]) if any(p[2] for p in inside) else None
-    end_dt = datetime.fromtimestamp(end_ts, _tz.utc) if end_ts else now_utc()
+    stamped = [p[2] for p in inside if p[2]]
+    start_dt = datetime.fromtimestamp(min(stamped), timezone.utc) if stamped else now_utc()
+    end_dt = datetime.fromtimestamp(max(stamped), timezone.utc) if stamped else now_utc()
 
     track = SearchTrack(
         pet_id=pet.id, user_id=current_user.id, source=SOURCE_DRONE,
-        started_at=start_dt, finished_at=end_dt,
-        notes=(request.form.get("notes") or "").strip()[:500] or None,
+        started_at=start_dt, finished_at=end_dt, notes=notes,
         points=coverage.encode_points(inside),
     )
     _finalise(track, trim=False)      # see _finalise: launch point is search info
@@ -334,8 +378,14 @@ def import_drone_photos(pet_id: int):
         parts.append(f"{outside} were outside Tasmania and ignored.")
     if result.skipped:
         parts.append(f"{len(result.skipped)} had no usable GPS.")
-    parts.append("The photos themselves were not stored.")
-    flash(" ".join(parts), "success")
+    parts.append("The photos themselves were never uploaded."
+                 if wants_json else "The photos themselves were not stored.")
+    message = " ".join(parts)
+
+    if wants_json:
+        return jsonify({"ok": True, "message": message,
+                        "track": _track_summary(track)})
+    flash(message, "success")
     return redirect(url_for("pets.pet_detail", pet_id=pet.id))
 
 

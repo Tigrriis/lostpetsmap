@@ -75,6 +75,11 @@ def test_only_the_author_can_append(app, client, user, other_user):
 
 
 def test_a_search_too_short_to_map_publishes_nothing(app, client, user):
+    """Start-and-stop without moving must not paint a cell as searched.
+
+    Telling the next volunteer a street is covered when nobody walked it is
+    worse than showing nothing there at all.
+    """
     pet = make_pet(user)
     login(client)
     started = client.post(f"/pets/{pet.id}/tracks", json={})
@@ -85,6 +90,31 @@ def test_a_search_too_short_to_map_publishes_nothing(app, client, user):
 
     assert resp.get_json()["published"] is False
     assert db.session.get(SearchTrack, track_id).cell_count == 0
+
+
+def test_a_sparse_two_fix_walk_still_publishes(app, client, user):
+    """The production failure: real distance, too few fixes, nothing published.
+
+    Four live tracks had a measured distance and zero coverage because the trim
+    snapped to whole points and gave up under three of them. Anything longer
+    than the minimum now survives, however few fixes it is made of.
+    """
+    pet = make_pet(user)
+    login(client)
+    started = client.post(f"/pets/{pet.id}/tracks", json={})
+    track_id = started.get_json()["track_id"]
+    # Two fixes ~280 m apart, the shape of the walk that failed.
+    client.post(f"/tracks/{track_id}/points", json={"points": [
+        [-42.8800, 147.3300, 1_760_000_000],
+        [-42.8825, 147.3300, 1_760_000_660],
+    ]})
+    resp = client.post(f"/tracks/{track_id}/finish", json={})
+
+    assert resp.get_json()["published"] is True
+    track = db.session.get(SearchTrack, track_id)
+    assert track.cell_count >= 3
+    assert track.points is not None
+    assert 250 < track.distance_m < 300
 
 
 def test_beacon_form_encoding_is_accepted(app, client, user):

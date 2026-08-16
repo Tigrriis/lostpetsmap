@@ -88,16 +88,37 @@ def path_length_m(points: Sequence[Point]) -> float:
 
 # ── Trimming ───────────────────────────────────────────────────────────────
 
+def _at_distance(points: Sequence[Point], cumulative: Sequence[float],
+                 target: float) -> list[float]:
+    """The point ``target`` metres along the path, interpolated within a segment."""
+    for i in range(1, len(points)):
+        if cumulative[i] >= target:
+            span = cumulative[i] - cumulative[i - 1]
+            f = (target - cumulative[i - 1]) / span if span > 0 else 0.0
+            a, b = points[i - 1], points[i]
+            return [a[0] + (b[0] - a[0]) * f,
+                    a[1] + (b[1] - a[1]) * f,
+                    int(a[2] + (b[2] - a[2]) * f)]
+    return [float(points[-1][0]), float(points[-1][1]), int(points[-1][2])]
+
+
 def trim_ends(points: Sequence[Point], trim_m: float,
               max_fraction: float = 0.25) -> list[list[float]]:
     """Drop the first and last ``trim_m`` of path, by distance travelled.
 
     A short walk would vanish entirely under a fixed trim, so the cut is capped
     at ``max_fraction`` of the total length per end — half the path always
-    survives. Below three points there is nothing meaningful to trim towards,
-    so the track comes back empty rather than as a misleading fragment.
+    survives.
+
+    The cut points are **interpolated within their segment**, not snapped to
+    the nearest recorded fix. Snapping looks equivalent and is not: a phone
+    that gets a poor lock can report a whole walk as two or three fixes, and
+    discarding whole points then throws the entire path away. That is not
+    hypothetical — it is what produced four tracks in production with a
+    measured distance and no coverage at all. Interpolating means any path
+    longer than the trim survives, however few fixes it is made of.
     """
-    if len(points) < 3:
+    if len(points) < 2:
         return []
 
     total = path_length_m(points)
@@ -114,10 +135,14 @@ def trim_ends(points: Sequence[Point], trim_m: float,
                           _haversine_m(points[i - 1][0], points[i - 1][1],
                                        points[i][0], points[i][1]))
 
-    keep = [i for i, d in enumerate(cumulative) if cut <= d <= total - cut]
-    if len(keep) < 2:
+    start_d, end_d = cut, total - cut
+    if end_d <= start_d:
         return []
-    return [list(points[i]) for i in keep]
+
+    kept = [_at_distance(points, cumulative, start_d)]
+    kept.extend(list(p) for i, p in enumerate(points) if start_d < cumulative[i] < end_d)
+    kept.append(_at_distance(points, cumulative, end_d))
+    return kept
 
 
 # ── Coverage grid ──────────────────────────────────────────────────────────

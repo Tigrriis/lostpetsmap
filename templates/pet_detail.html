@@ -304,7 +304,7 @@
 
         <details class="disclosure">
           <summary>Log a drone flight</summary>
-          <form method="post" enctype="multipart/form-data"
+          <form method="post" enctype="multipart/form-data" id="drone-form"
                 action="{{ url_for('tracks.import_drone_photos', pet_id=pet.id) }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="field">
@@ -312,23 +312,24 @@
               <input class="input" type="file" id="drone-photos" name="photos"
                      accept="image/*" multiple required>
               <p class="field-hint">
-                The flight path is rebuilt from the GPS stored in each photo, in the order
-                they were taken. <strong>The photos themselves are not uploaded or kept</strong> —
-                each one is read for its coordinates and discarded, so nothing you shot
-                is stored or shown.
+                <strong>The photos are read on this device and never uploaded.</strong>
+                Only the coordinates and capture times in each file's header are sent —
+                a few kilobytes for a whole sortie, however large the images are. Nothing
+                you shot leaves your machine, and nothing is stored or shown.
               </p>
               <p class="field-hint">
-                Unlike a walked search, a flight is <strong>not</strong> trimmed at the ends —
-                the whole path counts as coverage. If you launched from somewhere you'd
-                rather not put on the map, leave those first and last photos out.
+                The path follows the order the photos were taken. Unlike a walked search
+                a flight is <strong>not</strong> trimmed at the ends, so if you launched
+                from somewhere you'd rather not put on the map, leave those photos out.
               </p>
+              <p class="live-status" id="drone-status" hidden></p>
             </div>
             <div class="field">
               <label class="field-label" for="drone-notes">Notes (optional)</label>
               <input class="input" type="text" id="drone-notes" name="notes" maxlength="500"
                      placeholder="e.g. thermal grid, 60 m AGL, dusk">
             </div>
-            <button class="btn btn--primary" type="submit">Add flight</button>
+            <button class="btn btn--primary" type="submit" id="drone-submit">Add flight</button>
           </form>
         </details>
       {% elif not current_user.is_authenticated %}
@@ -399,10 +400,13 @@
                         and not pet.is_removed) | tojson }},
       urls: {
         tracks: "{{ url_for('tracks.pet_tracks', pet_id=pet.id) }}",
-        start: "{{ url_for('tracks.start_track', pet_id=pet.id) }}"
+        start: "{{ url_for('tracks.start_track', pet_id=pet.id) }}",
+        drone: "{{ url_for('tracks.import_drone_photos', pet_id=pet.id) }}"
       }
     };
   </script>
+  <script src="{{ url_for('static', filename='petmap/exif.js') }}"></script>
   <script src="{{ url_for('static', filename='petmap/pet_detail.js') }}"></script>
   <script src="{{ url_for('static', filename='petmap/search_track.js') }}"></script>
+  <script src="{{ url_for('static', filename='petmap/drone_import.js') }}"></script>
 {% endblock %}

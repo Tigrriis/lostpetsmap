@@ -95,6 +95,13 @@ class Config:
     TRACK_TRIM_M = 50.0
     TRACK_TRIM_MAX_FRACTION = 0.25
 
+    # A search shorter than one grid cell is not coverage. Pressing start and
+    # stop without moving would otherwise paint a 50 m square as "searched",
+    # which is worse than showing nothing — it tells the next volunteer not to
+    # bother with a street nobody walked. Measured on the full path, before
+    # trimming, so the trim setting cannot quietly change what counts.
+    TRACK_MIN_PUBLISH_M = 50.0
+
     TRACK_MAX_POINTS = 20_000          # ~28 h at one fix every 5 s
     TRACK_MAX_BATCH_POINTS = 500       # per append request
     TRACK_MAX_ACTIVE_PER_USER = 3      # unfinished tracks before we say no

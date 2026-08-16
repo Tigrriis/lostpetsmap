@@ -73,10 +73,41 @@ def test_short_walk_trims_by_fraction_not_flat_distance():
 
 def test_trim_refuses_paths_too_small_to_be_meaningful():
     assert trim_ends([], 200.0) == []
-    assert trim_ends(walk(-42.88, 147.33, 2), 200.0) == []
+    assert trim_ends([[-42.88, 147.33, 1]], 200.0) == []
     # A path that never moved has no ends to trim towards.
     assert trim_ends([[-42.88, 147.33, 1], [-42.88, 147.33, 2],
                       [-42.88, 147.33, 3]], 200.0) == []
+
+
+def test_a_two_fix_path_still_survives_trimming():
+    """A weak GPS lock can report a whole walk as two fixes.
+
+    Snapping the cut to whole points discarded the entire path in that case,
+    which is what left four production tracks with a measured distance and no
+    coverage. The cut is interpolated within the segment instead.
+    """
+    # Two fixes, ~280 m apart — the shape of the track that failed.
+    points = [[-42.8800, 147.3300, 1_760_000_000],
+              [-42.8825, 147.3300, 1_760_000_660]]
+    total = path_length_m(points)
+    assert 250 < total < 300
+
+    trimmed = trim_ends(points, 50.0)
+    assert len(trimmed) >= 2, "a 280 m walk must publish something"
+    assert path_length_m(trimmed) == pytest.approx(total - 100, abs=1.0)
+
+    from services.geo import haversine_m
+    assert haversine_m(points[0][0], points[0][1], trimmed[0][0], trimmed[0][1]) \
+        == pytest.approx(50, abs=1.0)
+    assert haversine_m(points[-1][0], points[-1][1], trimmed[-1][0], trimmed[-1][1]) \
+        == pytest.approx(50, abs=1.0)
+
+
+def test_two_fix_path_produces_coverage_cells():
+    """The end the user actually sees: cells on the map, not an empty track."""
+    points = [[-42.8800, 147.3300, 0], [-42.8825, 147.3300, 660]]
+    cells = cells_for_path(trim_ends(points, 50.0), CELL_M, REF_LAT)
+    assert len(cells) >= 3
 
 
 def test_trim_never_returns_the_original_endpoints():

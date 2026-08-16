@@ -24,7 +24,10 @@
 
   var FLUSH_MS = 30000;         // batch uploads; see the note above
   var MIN_MOVE_M = 5;           // ignore GPS jitter while standing still
-  var MAX_ACCURACY_M = 50;      // discard wildly imprecise fixes
+  // 50 m was too strict: an 11-minute walk under cover came back with two
+  // usable fixes, which was enough to measure a distance and not enough to
+  // draw. A consumer phone routinely reports 30-80 m in a suburb.
+  var MAX_ACCURACY_M = 120;     // discard only wildly imprecise fixes
   var STORE_KEY = "petmap-track-" + CFG.petId;
   var TRIM_M = CFG.trimM || 50; // quoted in the safety prompt; server decides it
 
@@ -148,11 +151,19 @@
 
   // ---------- Recording ----------
 
+  var discarded = 0;
+
   function onFix(pos) {
     if (!state) return;
     var c = pos.coords;
-    if (c.accuracy && c.accuracy > MAX_ACCURACY_M) {
-      status("Weak GPS signal (±" + Math.round(c.accuracy) + " m) — waiting for better.");
+    // Accept the first fix whatever its accuracy, so a search under tree cover
+    // records *something* rather than nothing. After that, hold the line — but
+    // say how many are being dropped, because a silent counter that never moves
+    // looks identical to a working recording.
+    if (c.accuracy && c.accuracy > MAX_ACCURACY_M && state.buffer.length + state.sent > 0) {
+      discarded++;
+      status("Weak GPS (±" + Math.round(c.accuracy) + " m) — " + discarded +
+             " fix" + (discarded === 1 ? "" : "es") + " skipped so far. Still trying.");
       return;
     }
     var point = [c.latitude, c.longitude];
@@ -261,8 +272,11 @@
           window.PM_detailMap.removeLayer(liveLine); liveLine = null;
         }
         showLive(false);
-        window.location.reload();          // simplest way to redraw coverage
+        // Tell them *before* reloading. The other order looks harmless and is
+        // not: the alert is discarded as the page unloads, so a search that
+        // published nothing did so silently.
         if (!data.published) window.alert(data.message);
+        window.location.reload();          // simplest way to redraw coverage
       })
       .catch(function (err) {
         el.finish.disabled = false;

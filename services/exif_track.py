@@ -57,14 +57,14 @@ def _dms_to_degrees(dms, ref: str | None) -> float | None:
     return value
 
 
-def _parse_timestamp(exif) -> datetime | None:
-    """DateTimeOriginal, as UTC.
+def _parse_exif_datetime(raw) -> datetime | None:
+    """An EXIF "YYYY:MM:DD HH:MM:SS" string, as UTC.
 
-    EXIF timestamps carry no timezone, and DJI writes local camera time. The
-    aircraft flies in Tasmania, so it is interpreted as Tasmanian wall time —
-    the same assumption the rest of the app makes about times people type in.
+    EXIF timestamps carry no timezone and DJI writes local camera time, so this
+    is read as Tasmanian wall time — the same assumption the rest of the app
+    makes about times people type in. Both the server-side reader and the
+    browser path funnel through here so that assumption lives in one place.
     """
-    raw = exif.get(_TAG.get("DateTimeOriginal")) or exif.get(_TAG.get("DateTime"))
     if not raw:
         return None
     try:
@@ -73,6 +73,12 @@ def _parse_timestamp(exif) -> datetime | None:
         return None
     from services.localtime import TZ
     return naive.replace(tzinfo=TZ).astimezone(timezone.utc)
+
+
+def _parse_timestamp(exif) -> datetime | None:
+    """DateTimeOriginal from a Pillow EXIF mapping."""
+    return _parse_exif_datetime(
+        exif.get(_TAG.get("DateTimeOriginal")) or exif.get(_TAG.get("DateTime")))
 
 
 def read_fix(raw: bytes) -> PhotoFix | None:
@@ -142,6 +148,59 @@ def fixes_from_uploads(uploads) -> ExifResult:
     # Time order, so the polyline joins them in the order they were taken.
     # Photos with no timestamp go last rather than being dropped — they still
     # carry a real position, which is what the coverage cells need.
+    timed = sorted((f for f in fixes if f.taken_at), key=lambda f: f.taken_at)
+    untimed = [f for f in fixes if not f.taken_at]
+    return ExifResult(timed + untimed, skipped)
+
+
+def fixes_from_client(raw) -> ExifResult:
+    """Accept fixes a browser already read out of the photos.
+
+    This is the normal path. static/petmap/exif.js parses each JPEG's EXIF on
+    the device and posts only these few numbers, so a 300-frame sortie costs a
+    few kilobytes instead of several gigabytes — and the imagery never leaves
+    the operator's machine at all. ``fixes_from_uploads`` remains for the
+    no-JavaScript case and for small batches.
+
+    Client data is untrusted, so everything is re-validated here. The timestamp
+    is deliberately still parsed server-side, by the same function the upload
+    path uses, so "what timezone is an EXIF date in?" is answered in one place.
+    """
+    fixes: list[PhotoFix] = []
+    skipped: list[str] = []
+
+    if not isinstance(raw, list):
+        return ExifResult(fixes, ["Expected a list of photo positions."])
+
+    for index, item in enumerate(raw):
+        label = f"photo {index + 1}"
+        if not isinstance(item, dict):
+            skipped.append(f"{label}: malformed")
+            continue
+        try:
+            lat = float(item["lat"])
+            lng = float(item["lng"])
+        except (KeyError, TypeError, ValueError):
+            skipped.append(f"{label}: no usable position")
+            continue
+        if lat != lat or lng != lng:                       # NaN
+            skipped.append(f"{label}: no usable position")
+            continue
+        if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+            skipped.append(f"{label}: position out of range")
+            continue
+
+        taken = _parse_exif_datetime(item.get("taken"))
+
+        altitude = None
+        try:
+            if item.get("alt") is not None:
+                altitude = float(item["alt"])
+        except (TypeError, ValueError):
+            altitude = None
+
+        fixes.append(PhotoFix(lat, lng, taken, altitude))
+
     timed = sorted((f for f in fixes if f.taken_at), key=lambda f: f.taken_at)
     untimed = [f for f in fixes if not f.taken_at]
     return ExifResult(timed + untimed, skipped)
