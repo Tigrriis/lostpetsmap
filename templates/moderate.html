@@ -31,6 +31,17 @@
   {% endfor %}
 </nav>
 
+{% if view == 'reports' and current_user.is_admin %}
+  <form method="post" action="{{ url_for('moderation.reblur') }}" class="inline-form"
+        data-confirm="Re-blur any report whose offset is wider than the current radius?">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="btn btn--ghost btn--sm" type="submit">Re-blur out-of-spec reports</button>
+    <span class="muted">
+      Run once after changing the blur radius — existing reports keep their old offset.
+    </span>
+  </form>
+{% endif %}
+
 {% if pets is not none %}
   <table class="data-table">
     <thead>

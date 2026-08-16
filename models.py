@@ -91,6 +91,15 @@ def _as_aware(value: datetime | None) -> datetime | None:
     return value
 
 
+def _offset_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """Great-circle metres. Local to avoid importing services from models."""
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = p2 - p1
+    dl = math.radians(lng2 - lng1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * 6_371_000.0 * math.asin(math.sqrt(a))
+
+
 def blur_point(lat: float, lng: float, radius_m: float) -> tuple[float, float]:
     """Return a point uniformly distributed in a disc of ``radius_m`` around it.
 
@@ -227,9 +236,18 @@ class Pet(db.Model):
         """
         moved = (self.lat != lat) or (self.lng != lng)
         toggled = (self.blur_location != blur)
+        # Self-heal when the stored offset no longer satisfies the configured
+        # radius — which is what happens to every existing report the moment
+        # BLUR_RADIUS_M is lowered. Checking here keeps "the public point is
+        # within the current radius" true by construction, rather than only
+        # until someone edits the setting.
+        out_of_spec = (
+            blur and self.public_lat is not None
+            and _offset_m(lat, lng, self.public_lat, self.public_lng) > radius_m
+        )
         self.lat, self.lng = lat, lng
         self.blur_location = blur
-        if moved or toggled or self.public_lat is None:
+        if moved or toggled or out_of_spec or self.public_lat is None:
             if blur:
                 self.public_lat, self.public_lng = blur_point(lat, lng, radius_m)
             else:

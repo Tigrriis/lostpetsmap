@@ -7,13 +7,16 @@ than someone's only photo of their cat.
 """
 from __future__ import annotations
 
-from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
+from flask import (
+    Blueprint, abort, current_app, flash, redirect, render_template, request, url_for,
+)
 from flask_login import current_user
 
 from auth import admin_required, moderator_required
 from extensions import db
 from models import (
     ROLE_ADMIN, ROLE_MODERATOR, ROLE_USER, ContactMessage, Pet, Sighting, User,
+    _offset_m,
 )
 from services.localtime import now_utc
 
@@ -152,6 +155,44 @@ def remove_user_reports(user_id: int):
     db.session.commit()
     flash(f"Removed {count} report(s) from {user.email}.", "info")
     return redirect(request.referrer or url_for("moderation.queue", view="users"))
+
+
+@moderation_bp.route("/reblur", methods=["POST"])
+@admin_required
+def reblur():
+    """Re-blur reports whose stored offset exceeds the current radius.
+
+    Lowering BLUR_RADIUS_M does not touch existing rows — ``set_location``
+    deliberately keeps an offset stable so repeated sampling of the public feed
+    cannot average back to the true point. That leaves older reports blurred at
+    the previous, wider radius: safe, but no longer matching what the map says
+    it shows.
+
+    This exists as a button rather than only as tools/reblur.py because a free
+    Render service has no shell to run a script from.
+
+    Re-blurring draws a second offset around the same true point, so anyone who
+    recorded the old public coordinate now holds two samples. Tightening the
+    radius makes the new point more revealing than the pair, so it costs
+    nothing — but this is a migration, not a routine. Do not run it to
+    "refresh" offsets.
+    """
+    radius = current_app.config["BLUR_RADIUS_M"]
+    changed = 0
+    for pet in Pet.query.filter_by(blur_location=True, is_removed=False).all():
+        before = _offset_m(pet.lat, pet.lng, pet.public_lat, pet.public_lng)
+        if before <= radius:
+            continue
+        pet.set_location(pet.lat, pet.lng, blur=True, radius_m=radius)
+        changed += 1
+    db.session.commit()
+
+    if changed:
+        flash(f"Re-blurred {changed} report(s) to the current {radius:g} m radius.",
+              "success")
+    else:
+        flash(f"Nothing to do — every report is already within {radius:g} m.", "info")
+    return redirect(url_for("moderation.queue", view="reports"))
 
 
 @moderation_bp.route("/user/<int:user_id>/role", methods=["POST"])
