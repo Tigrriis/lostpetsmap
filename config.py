@@ -138,6 +138,24 @@ class Config:
     # pet went missing, because "last seen" is often a best guess.
     MATCH_RADIUS_KM = 20.0
     MATCH_BEFORE_DAYS = 2
+
+    # Alerting owners when an unidentified sighting turns up near their pet.
+    # Tighter than the browse radius above: a shortlist you chose to open can
+    # afford to be generous, an unsolicited email cannot, and a sighting 20 km
+    # away is rarely worth interrupting someone for.
+    MATCH_ALERT_RADIUS_KM = 5.0
+    # Per pet per day. Generous enough that a real cluster of sightings all get
+    # through — every one of them matters when a pet is out — and bounded so a
+    # bad actor posting sightings cannot use it to bombard one person.
+    MATCH_ALERT_MAX_PER_DAY = 10
+    # Per sighting. One post in a dense suburb should not fan out to everyone.
+    MATCH_ALERT_MAX_RECIPIENTS = 20
+    # Wall-clock budget for the whole send loop, which runs inline in the
+    # request that posted the sighting. At Resend's usual latency twenty sends
+    # take a few seconds and this never bites; it exists for the day Resend is
+    # slow, when the alternative is exceeding the 60 s gunicorn timeout and
+    # handing the reporter a 502 for a sighting that was already saved.
+    MATCH_ALERT_MAX_SECONDS = 15.0
     MAP_RESULT_LIMIT = 2000            # markers returned by one /api/pets call
     DEFAULT_ACTIVE_DAYS = 180          # reports older than this are hidden by default
 

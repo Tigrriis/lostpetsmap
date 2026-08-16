@@ -243,6 +243,13 @@ class Pet(db.Model):
     updated_at = db.Column(db.DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
     resolved_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
+    # Fixed-window counter bounding "a sighting turned up near your pet" emails,
+    # same shape as User.geocode_count. On the pet rather than the owner so one
+    # busy report cannot silence alerts for another pet they also have out.
+    match_alerts_sent = db.Column(db.Integer, nullable=False, default=0,
+                                  server_default="0")
+    match_alert_window_start = db.Column(db.DateTime(timezone=True), nullable=True)
+
     # ── Moderation (soft delete) ──
     is_removed = db.Column(db.Boolean, nullable=False, default=False,
                            server_default=db.false(), index=True)
@@ -310,6 +317,21 @@ class Pet(db.Model):
     def visible_sightings(self):
         return (self.sightings.filter_by(is_removed=False)
                 .order_by(Sighting.seen_at.desc()))
+
+    def take_match_alert_slot(self, limit: int, window_hours: int = 24) -> bool:
+        """Claim one "sighting nearby" email, or False if today's budget is spent.
+
+        The caller commits.
+        """
+        now = _utcnow()
+        start = _as_aware(self.match_alert_window_start)
+        if start is None or (now - start) >= timedelta(hours=window_hours):
+            self.match_alert_window_start = now
+            self.match_alerts_sent = 0
+        if self.match_alerts_sent >= limit:
+            return False
+        self.match_alerts_sent += 1
+        return True
 
     def can_edit(self, user) -> bool:
         """Owner or moderator. Anonymous users get False, not an exception."""

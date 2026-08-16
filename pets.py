@@ -28,6 +28,7 @@ Two invariants worth stating once, because every route depends on them:
 """
 from __future__ import annotations
 
+import time
 from datetime import timedelta
 
 from flask import (
@@ -40,6 +41,7 @@ from sqlalchemy.exc import IntegrityError
 
 from auth import active_user_required, verified_required
 from extensions import db
+import mailer
 from mailer import send_owner_message, send_sighting_alert
 from models import (
     MICROCHIP, REPORT_FOUND, REPORT_MISSING, REPORT_TYPES, SEXES, SIZES,
@@ -52,7 +54,9 @@ from services import images
 from services.geo import (
     bbox_around, haversine_m, parse_bbox, parse_latlng, within_bounds,
 )
-from services.localtime import now_utc, parse_local_input, to_input_value
+from services.localtime import (
+    format_local, now_utc, parse_local_input, to_input_value,
+)
 from services.localities import LOCALITIES
 
 pets_bp = Blueprint("pets", __name__)
@@ -691,12 +695,111 @@ def new_sighting():
                         sighting.photo, sighting.photo_mimetype = processed
             db.session.add(sighting)
             db.session.commit()
-            flash("Sighting posted. If it's someone's missing pet, they can claim it "
-                  "from their report.", "success")
-            return redirect(url_for("map_page"))
+
+            alerted = _alert_nearby_owners(sighting)
+            if alerted:
+                animal = SPECIES[species].lower()
+                who = (f"the owner of a missing {animal} nearby has"
+                       if alerted == 1
+                       else f"{alerted} owners of missing {animal}s nearby have")
+                flash(f"Sighting posted, and {who} been emailed.", "success")
+            else:
+                flash("Sighting posted. It's on the map now, and owners searching "
+                      "nearby will see it.", "success")
+            return redirect(url_for("pets.sighting_detail", sighting_id=sighting.id))
 
     return render_template("sighting_form.html", species=SPECIES,
                            bounds=cfg["TAS_BOUNDS"], centre=cfg["TAS_CENTRE"])
+
+
+def _alert_nearby_owners(sighting: Sighting) -> int:
+    """Email owners of missing pets this sighting might be. Returns how many.
+
+    The counterpart to the matches page: without it a sighting only reaches an
+    owner who happens to go looking, which is the wrong way round when the
+    thing that matters is hours.
+
+    Deliberately narrower than the browse radius — see MATCH_ALERT_RADIUS_KM.
+    Only verified addresses are mailed, because an unverified one may not
+    belong to the account holder and unsolicited mail to a stranger is a
+    different thing from a link they asked for.
+
+    Sends happen inline, inside the request that posted the sighting. That is
+    the right call at this scale — a handful of sightings a day, no queue to
+    run — but it puts a slow third party on the critical path, so the loop is
+    bounded by MATCH_ALERT_MAX_SECONDS as well as by the recipient cap. Without
+    that bound, twenty recipients timing out at ten seconds each would blow
+    through the sixty-second gunicorn timeout and the reporter would get a 502
+    for a sighting that was already saved.
+    """
+    cfg = current_app.config
+    if not mailer.mail_is_configured():
+        return 0
+    deadline = time.monotonic() + cfg["MATCH_ALERT_MAX_SECONDS"]
+
+    radius_m = cfg["MATCH_ALERT_RADIUS_KM"] * 1000
+    box = bbox_around(sighting.lat, sighting.lng, radius_m)
+
+    candidates = (Pet.query
+                  .filter(Pet.is_removed.is_(False))
+                  .filter(Pet.report_type == REPORT_MISSING)
+                  .filter(Pet.status == STATUS_ACTIVE)
+                  .filter(Pet.species == sighting.species)
+                  # A pet lost *after* the sighting cannot be the animal in it.
+                  .filter(Pet.last_seen_at <= sighting.seen_at)
+                  .filter(Pet.public_lat.between(box.south, box.north))
+                  .filter(Pet.public_lng.between(box.west, box.east))
+                  .order_by(Pet.last_seen_at.desc())
+                  # Over-fetch, because the loop below drops rows the bounding
+                  # box let through: corners outside the true radius, the
+                  # reporter's own pets, unverified owners, pets out of budget.
+                  # Most recently lost first, so if this cap ever truncates it
+                  # is the coldest trails that lose out.
+                  .limit(cfg["MATCH_ALERT_MAX_RECIPIENTS"] * 3).all())
+
+    sent = 0
+    for pet in candidates:
+        if sent >= cfg["MATCH_ALERT_MAX_RECIPIENTS"]:
+            current_app.logger.warning(
+                "Sighting %s matched more pets than the per-sighting cap; "
+                "some owners were not alerted.", sighting.id)
+            break
+        # Distance from the *blurred* point, which is all we should reveal in
+        # an email — and close enough for "is this worth a look?".
+        distance_m = haversine_m(sighting.lat, sighting.lng,
+                                 pet.public_lat, pet.public_lng)
+        if distance_m > radius_m:
+            continue
+        if pet.user_id == sighting.user_id:
+            continue                      # they posted it themselves
+        owner = pet.reporter
+        if owner is None or owner.is_banned or not owner.email_verified:
+            continue
+        if not pet.take_match_alert_slot(cfg["MATCH_ALERT_MAX_PER_DAY"]):
+            continue
+        if time.monotonic() > deadline:
+            # Checked after the slot logic so a skipped pet keeps its budget:
+            # nothing was sent on its behalf, so nothing should be spent. The
+            # sighting is already saved and public either way.
+            current_app.logger.warning(
+                "Alerting for sighting %s ran out of time after %s sends; "
+                "the remaining owners were not emailed.", sighting.id, sent)
+            pet.match_alerts_sent -= 1
+            break
+
+        mailer.send_match_alert(
+            owner.email, pet.name or f"your {SPECIES.get(pet.species, 'pet').lower()}",
+            SPECIES.get(sighting.species, "animal"), distance_m / 1000.0,
+            format_local(sighting.seen_at),
+            sighting.description or sighting.note or "",
+            url_for("pets.sighting_detail", sighting_id=sighting.id, _external=True),
+            url_for("pets.pet_matches", pet_id=pet.id, _external=True),
+        )
+        sent += 1
+
+    if sent:
+        db.session.commit()               # persist the per-pet counters
+    return sent
 
 
 @pets_bp.route("/sightings/<int:sighting_id>")

@@ -167,6 +167,37 @@ claims to have your pet but won't show you a photo or meet in person.
     )
 
 
+def send_match_alert(to: str, pet_label: str, species: str, distance_km: float,
+                     when: str, description: str, sighting_url: str,
+                     matches_url: str) -> None:
+    """Tell an owner an unidentified animal was reported near their missing pet.
+
+    Careful with the wording: nobody has said this is their pet, and a message
+    that reads like good news when it is a coincidence is cruel. It says what
+    was seen and where, and leaves the judgement to them.
+    """
+    send_email(
+        to,
+        f"[{config.SITE_NAME}] A {species.lower()} was seen near where you lost {pet_label}",
+        f"""
+Someone reported seeing a {species.lower()} about {distance_km:.1f} km from where
+you last saw {pet_label}. Nobody has identified it — it may well not be yours.
+
+  When: {when}
+  What they saw: {description or "(no description)"}
+
+  {sighting_url}
+
+If it looks like them, you can add it to your report from your matches page:
+
+  {matches_url}
+
+Whoever posted it did not catch the animal, so there is nobody holding it.
+Going to look is the only way to know.
+""",
+    )
+
+
 def send_sighting_alert(to: str, pet_label: str, pet_url: str,
                         note: str, when: str) -> None:
     """Tell the owner someone logged a sighting against their report."""
