@@ -497,7 +497,8 @@ class Observation:
     """
 
     def __init__(self, *, seen_at, note, lat, lng, reporter, photo_url=None,
-                 link_id=None, source_url=None, sighting_id=None, user_id=None):
+                 link_id=None, source_url=None, sighting_id=None, user_id=None,
+                 linked_label=None):
         self.seen_at = seen_at
         self.note = note
         self.lat = lat
@@ -505,6 +506,7 @@ class Observation:
         self.reporter = reporter
         self.photo_url = photo_url
         self.link_id = link_id          # set when it arrived via a claim
+        self.linked_label = linked_label  # "Linked by owner" / "…by a moderator"
         self.source_url = source_url    # where it was originally posted
         self.sighting_id = sighting_id
         self.user_id = user_id
@@ -526,6 +528,11 @@ def _observations(pet: Pet) -> list[Observation]:
             sighting_id=s.id, user_id=s.user_id))
 
     for link in pet.links:
+        # Moderators can link too, so the label reports who actually did it
+        # rather than assuming the owner — a moderator's judgement and an
+        # owner's hopeful guess are not the same claim.
+        linked_label = ("Linked by owner" if link.created_by_id == pet.user_id
+                        else "Linked by a moderator")
         if link.sighting_id:
             s = link.sighting
             if s is None or s.is_removed:
@@ -535,7 +542,8 @@ def _observations(pet: Pet) -> list[Observation]:
                 reporter=s.reporter.public_name if s.reporter else "",
                 photo_url=(url_for("pets.sighting_photo", sighting_id=s.id)
                            if s.has_photo else None),
-                link_id=link.id, sighting_id=s.id, user_id=s.user_id,
+                link_id=link.id, linked_label=linked_label,
+                sighting_id=s.id, user_id=s.user_id,
                 source_url=(url_for("pets.pet_detail", pet_id=s.pet_id)
                             if s.pet_id else None)))
         else:
@@ -550,7 +558,7 @@ def _observations(pet: Pet) -> list[Observation]:
                 reporter=other.reporter.public_name if other.reporter else "",
                 photo_url=(url_for("pets.pet_photo", pet_id=other.id,
                                    photo_id=photo.id, size="thumb") if photo else None),
-                link_id=link.id,
+                link_id=link.id, linked_label=linked_label,
                 source_url=url_for("pets.pet_detail", pet_id=other.id)))
 
     items.sort(key=lambda o: o.seen_at or now_utc())

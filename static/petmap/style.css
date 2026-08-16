@@ -615,7 +615,22 @@ body { background: var(--paper); color: var(--ink-800); }
   padding: var(--sp-3) 0;
   border-bottom: 1px solid var(--line);
 }
-.sighting__when { font-weight: 600; font-size: var(--fs-2); }
+.sighting__when {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  font-weight: 600;
+  font-size: var(--fs-2);
+}
+/* Quieter than the status tags — it qualifies an entry rather than labelling
+   an outcome, and should not compete with "Missing" or "Reunited" for attention. */
+.tag--linked {
+  background: var(--panel-3);
+  color: var(--ink-600);
+  border-color: var(--line-strong);
+  font-weight: 500;
+}
 .sighting__note { margin: var(--sp-1) 0; white-space: pre-wrap; }
 .sighting__photo { max-width: 14rem; border: 1px solid var(--line); display: block; margin: var(--sp-2) 0; }
 .sighting__meta {

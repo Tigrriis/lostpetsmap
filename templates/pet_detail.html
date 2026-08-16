@@ -158,6 +158,14 @@
             <li class="sighting">
               <div class="sighting__when">
                 {{ s.seen_at | localtime }} <span class="muted">({{ s.seen_at | ago }})</span>
+                {% if s.linked_label %}
+                  {# Says this was claimed rather than independently reported —
+                     the timeline should not present a guess as a fresh report. #}
+                  <span class="tag tag--linked"
+                        title="Added from elsewhere on the site by the person who
+                               posted this report. It has not been confirmed as the
+                               same animal.">{{ s.linked_label }}</span>
+                {% endif %}
               </div>
               {% if s.note %}<p class="sighting__note">{{ s.note }}</p>{% endif %}
               {% if s.has_photo %}

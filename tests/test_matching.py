@@ -164,6 +164,41 @@ def test_a_claimed_sighting_shows_on_the_report(app, client, user, other_user):
     assert "unlink" in body, "the owner needs a way to undo a wrong guess"
 
 
+def test_a_claimed_entry_is_labelled_as_linked(app, client, user, other_user):
+    """A claim is a guess; the timeline should not read it as a fresh report."""
+    pet = make_pet(user, species="cat")
+    s = standalone(other_user, note="Seen under a car")
+    login(client)
+    client.post(f"/pets/{pet.id}/link", data={"sighting_id": s.id}, follow_redirects=True)
+
+    body = client.get(f"/pets/{pet.id}").get_data(as_text=True)
+    assert "Linked by owner" in body
+
+
+def test_a_moderators_link_is_not_credited_to_the_owner(app, client, user,
+                                                        other_user, moderator):
+    pet = make_pet(other_user, species="cat")
+    s = standalone(user)
+    login(client, email="mod@example.com")
+    client.post(f"/pets/{pet.id}/link", data={"sighting_id": s.id}, follow_redirects=True)
+
+    body = client.get(f"/pets/{pet.id}").get_data(as_text=True)
+    assert "Linked by a moderator" in body
+    assert "Linked by owner" not in body
+
+
+def test_the_reports_own_sightings_carry_no_label(app, client, user):
+    """Only claims are qualified — an ordinary sighting stays unadorned."""
+    pet = make_pet(user, species="cat")
+    db.session.add(Sighting(pet_id=pet.id, user_id=user.id, lat=pet.lat,
+                            lng=pet.lng, seen_at=now_utc(), note="I saw her myself"))
+    db.session.commit()
+
+    body = client.get(f"/pets/{pet.id}").get_data(as_text=True)
+    assert "I saw her myself" in body
+    assert "Linked by" not in body
+
+
 def test_a_claimed_found_report_shows_as_a_sighting(app, client, user, other_user):
     pet = make_pet(user, species="cat")
     found = make_pet(other_user, report_type="found", species="cat", name=None,
