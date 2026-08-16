@@ -386,6 +386,7 @@
       lng: {{ lng }},
       approximate: {{ (pet.blur_location and not exact) | tojson }},
       reportType: {{ pet.report_type | tojson }},
+      status: {{ pet.status | tojson }},
       bounds: {{ bounds | tojson }},
       sightings: [
         {% for s in sightings %}

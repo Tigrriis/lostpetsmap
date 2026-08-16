@@ -120,15 +120,22 @@ window.PetMapUtil = (function () {
     return value || fallback || "#888";
   }
 
-  /* The map's semantic palette, in one place. */
+  /* The map's semantic palette. The report statuses read the --status-* tokens
+     defined in style.css rather than the pack's signal tokens directly, so the
+     legend dots, the pins and this object cannot drift apart — there is one
+     mapping from "missing" to a colour and it is in the stylesheet. The rest
+     are presentation, not status, and stay on the pack's own tokens.
+
+     var() is substituted at computed-value time, so getPropertyValue returns
+     the resolved colour here, not the literal "var(--danger)". */
   var COLOURS = {
-    missing:  function () { return token("--danger"); },
-    found:    function () { return token("--accent"); },
-    reunited: function () { return token("--ok"); },
-    coverage: function () { return token("--ok"); },
+    missing:  function () { return token("--status-missing"); },
+    found:    function () { return token("--status-found"); },
+    reunited: function () { return token("--status-reunited"); },
+    coverage: function () { return token("--status-coverage"); },
+    sighting: function () { return token("--status-sighting"); },
     onFoot:   function () { return token("--ok"); },
     drone:    function () { return token("--blue"); },
-    sighting: function () { return token("--warn"); },
     live:     function () { return token("--accent"); }
   };
 
@@ -136,6 +143,14 @@ window.PetMapUtil = (function () {
   function markerColour(props) {
     if (props.status === "reunited") return COLOURS.reunited();
     return props.report_type === "missing" ? COLOURS.missing() : COLOURS.found();
+  }
+
+  /* The shape half of the same decision — see .pin-icon--* in style.css.
+     Deliberately mirrors markerColour branch for branch: a pin whose shape and
+     colour disagreed would be worse than either alone. */
+  function markerShape(props) {
+    if (props.status === "reunited") return "reunited";
+    return props.report_type === "missing" ? "missing" : "found";
   }
 
   /* A small circular pin as a divIcon — no image requests, and it recolours
@@ -160,6 +175,7 @@ window.PetMapUtil = (function () {
     addBasemap: addBasemap,
     escapeHtml: escapeHtml,
     markerColour: markerColour,
+    markerShape: markerShape,
     colours: COLOURS,
     token: token,
     pinIcon: pinIcon,

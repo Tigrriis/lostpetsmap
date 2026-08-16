@@ -117,7 +117,7 @@
       var p = f.properties;
       var coords = f.geometry.coordinates;      // GeoJSON is [lng, lat]
       var marker = L.marker([coords[1], coords[0]], {
-        icon: U.pinIcon(U.markerColour(p), "pin-icon--" + p.report_type),
+        icon: U.pinIcon(U.markerColour(p), "pin-icon--" + U.markerShape(p)),
         title: p.name || p.species_label,
         alt: (p.report_type === "missing" ? "Missing " : "Found ") + p.species_label
       });

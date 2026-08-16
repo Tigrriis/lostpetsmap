@@ -60,7 +60,9 @@
 
   --fs-0: 0.75rem;     /* 12 */
   --fs-1: 0.8125rem;   /* 13 */
-  --fs-2: 0.875rem;    /* 14 - body */
+  /* 15px body, not the 14 a dense tool would use: this is the public-facing
+     pack, and its body copy is read by first-time users on phones. */
+  --fs-2: 0.9375rem;   /* 15 - body */
   --fs-3: 1rem;        /* 16 */
   --fs-4: 1.125rem;    /* 18 */
   --fs-5: 1.5rem;      /* 24 */

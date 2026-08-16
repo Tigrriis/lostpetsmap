@@ -23,7 +23,13 @@
 
   function drawBase() {
     baseLayer.clearLayers();
-    var colour = CFG.reportType === "missing" ? U.colours.missing() : U.colours.found();
+    // Shaped like the properties the map endpoint returns, so colour and shape
+    // are decided by the same two helpers the map page uses. Reading status as
+    // well as report type is what makes a reunited pet look reunited here too,
+    // rather than still red on its own detail page.
+    var props  = { status: CFG.status, report_type: CFG.reportType };
+    var colour = U.markerColour(props);
+    var shape  = U.markerShape(props);
 
     if (CFG.approximate) {
       // Draw the uncertainty rather than a false point. A bare marker on a
@@ -32,7 +38,7 @@
         radius: 400, color: colour, weight: 1.5, fillOpacity: 0.12, dashArray: "4 4"
       }).addTo(baseLayer).bindPopup("Somewhere in this area.");
     } else {
-      L.marker([CFG.lat, CFG.lng], { icon: U.pinIcon(colour) })
+      L.marker([CFG.lat, CFG.lng], { icon: U.pinIcon(colour, "pin-icon--" + shape) })
         .addTo(baseLayer)
         .bindPopup(CFG.reportType === "missing" ? "Last seen here" : "Found here");
     }

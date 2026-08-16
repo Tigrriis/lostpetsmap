@@ -32,7 +32,6 @@
               box-shadow var(--dur) var(--ease),
               transform var(--dur) var(--ease);
 }
-.btn:hover  { background: var(--panel-2); box-shadow: var(--shadow-2); transform: translateY(-1px); }
 .btn:active { transform: translateY(0); box-shadow: var(--shadow-1); }
 .btn:disabled { opacity: .5; cursor: not-allowed; transform: none; box-shadow: none; }
 
@@ -42,7 +41,6 @@
   --_bd: transparent;
   box-shadow: 0 1px 2px rgba(30, 27, 57, .18), 0 2px 8px rgba(91, 91, 214, .28);
 }
-.btn--primary:hover { --_bg: var(--accent-hi); color: #fff; }
 
 .btn--ghost {
   --_bg: transparent;
@@ -50,10 +48,8 @@
   --_fg: var(--ink-600);
   box-shadow: none;
 }
-.btn--ghost:hover { --_bg: var(--panel-3); box-shadow: none; }
 
 .btn--danger { --_bg: var(--danger); --_fg: #fff; --_bd: transparent; }
-.btn--danger:hover { background: var(--danger); color: #fff; filter: brightness(1.07); }
 
 .btn--sm { padding: 6px 12px; font-size: var(--fs-1); border-radius: 6px; }
 .btn--notch { border-radius: var(--radius-lg); }
@@ -70,7 +66,30 @@
   cursor: pointer;
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
-.btn-icon:hover { background: var(--panel-2); color: var(--accent-ink); }
+
+/* Every hover state lives here rather than beside its component, because on a
+   touch device :hover latches after a tap and stays latched until something
+   else is tapped — the lift on .btn is the obvious one, but a stuck fill reads
+   just as wrong. Gate the lot; :active and :focus-visible carry touch feedback. */
+@media (hover: hover) {
+  .btn:hover          { background: var(--panel-2); box-shadow: var(--shadow-2); transform: translateY(-1px); }
+  .btn--primary:hover { --_bg: var(--accent-hi); color: #fff; }
+  .btn--ghost:hover   { --_bg: var(--panel-3); box-shadow: none; }
+  .btn--danger:hover  { background: var(--danger); color: #fff; filter: brightness(1.07); }
+  .btn-icon:hover     { background: var(--panel-2); color: var(--accent-ink); }
+
+  .tab:hover                 { color: var(--ink-900); }
+  .data-table tbody tr:hover { background: var(--panel-2); }
+  .modal__close:hover        { color: var(--ink-900); background: var(--panel-3); }
+}
+
+/* .btn--sm lands at ~29px tall, which is fine under a mouse and too small for
+   a thumb. Coarse pointers get a 44px target; the compact size is kept for
+   pointing devices, where the density is the point. */
+@media (pointer: coarse) {
+  .btn--sm  { min-height: 44px; padding-inline: var(--sp-3); }
+  .btn-icon { width: 44px; height: 44px; }
+}
 
 /* ------------------------------------------------------------- TABS -------- */
 /* A segmented control rather than filing tabs. */
@@ -96,7 +115,6 @@
   cursor: pointer;
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
-.tab:hover { color: var(--ink-900); }
 .tab.is-active {
   background: var(--panel);
   color: var(--ink-900);
@@ -257,7 +275,6 @@ input[type="number"].hud { font-family: var(--font-mono); }
 }
 .data-table tbody td { padding: 12px 14px; border-bottom: 1px solid var(--line); }
 .data-table tbody tr:last-child td { border-bottom: 0; }
-.data-table tbody tr:hover { background: var(--panel-2); }
 .data-table .num { font-family: var(--font-mono); text-align: right; font-variant-numeric: tabular-nums; }
 
 /* ------------------------------------------------------------- BADGES ------ */
@@ -317,7 +334,6 @@ input[type="number"].hud { font-family: var(--font-mono); }
   background: none; border: 0; font-size: 18px;
   color: var(--ink-400); cursor: pointer; border-radius: 6px; padding: 2px 6px;
 }
-.modal__close:hover { color: var(--ink-900); background: var(--panel-3); }
 
 /* --------------------------------------------------- APP SHELL ------------- */
 /* A light header, not a dark console bar. */

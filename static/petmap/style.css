@@ -10,6 +10,51 @@
    only surfaces the next time the pack changes.
    ============================================================================ */
 
+/* --------------------------------------------------- STATUS PALETTE ------ */
+/* Report status is the one piece of semantics a style pack cannot own: a pack
+   knows "danger", it does not know "missing". These alias the pack's signal
+   tokens so the meaning is declared in exactly one place — the legend dots and
+   pins below read them, and so does PetMapUtil.COLOURS in app.js, which used
+   to keep its own copy of the same mapping.
+
+   --status-missing is deliberately named rather than using --danger directly.
+   --danger is also the Remove button, the field-error red and the map error
+   pill; a missing pet is not an error, and the day that hue should stop being
+   the destructive red, this is the only line that has to change. */
+:root {
+  --status-missing:  var(--danger);
+  --status-found:    var(--accent);
+  --status-sighting: var(--warn);
+  --status-reunited: var(--ok);
+  --status-coverage: var(--ok);
+}
+
+/* ------------------------------------------------ FILLED-CONTROL FG ------ */
+/* The pack hard-codes #fff as the foreground of every filled control, and its
+   dark palette *lightens* --accent and --danger for legibility as text. White
+   on those lightened fills lands at 3.49:1 for primary buttons and 2.87:1 for
+   danger ones — below the 4.5:1 floor, on every page. Filled controls take a
+   dark foreground in dark mode instead, which is how tinted danger/accent
+   fills are normally handled on dark backgrounds.
+
+   Both this and the --danger nudge below are pack bugs affecting any app on
+   this pack; they belong upstream in Tigrriis/style-tests, and these rules can
+   go the day they land. */
+:root { --on-fill: #fff; }
+[data-theme="dark"] { --on-fill: var(--paper); }
+
+[data-theme="dark"] .btn--primary,
+[data-theme="dark"] .btn--danger { --_fg: var(--on-fill); }
+
+/* Light --danger (#d2455a) is fractionally too light both for white text
+   (4.43:1) and as text on its own --danger-soft fill (3.94:1, the "Missing"
+   tag). One step darker clears both at 5.10 and 4.53.
+
+   Scoped with :not([data-theme="dark"]) deliberately: a bare :root here has
+   the same specificity as the pack's [data-theme="dark"] block and loads
+   after it, so it would silently override the dark-mode red as well. */
+:root:not([data-theme="dark"]) { --danger: #c63a4f; }
+
 /* ------------------------------------------------------------ SHELL ------ */
 
 body { background: var(--paper); color: var(--ink-800); }
@@ -45,12 +90,15 @@ body { background: var(--paper); color: var(--ink-800); }
   font-size: var(--fs-5);
   letter-spacing: -0.01em;
 }
-/* --ink-500 on a light surface measures about 3.98:1 in the Soft Product pack,
-   just under the 4.5:1 AA floor for body text. Secondary text steps down to
-   --ink-600 here instead. This is a pack bug, not an app one — worth fixing in
-   Tigrriis/style-tests so every app inherits it; until then this override, and
-   the .app-header__sub one below, keep this app accessible. Dark mode is fine
-   and needs no equivalent. */
+/* The pack's lighter ink steps do not clear AA on its own light surfaces:
+   --ink-500 measures about 3.98:1 and --ink-400 about 2.83:1, against a 4.5:1
+   floor for body text. So every piece of secondary and tertiary text in this
+   app sits on --ink-600, and hierarchy is carried by size and weight instead
+   of by lightness. Do not "restore" a lighter tone for subtlety — it fails.
+
+   This is a pack bug rather than an app one, and worth fixing upstream in
+   Tigrriis/style-tests so the other apps inherit it; these overrides can go
+   the day it is. Dark mode clears AA on its own and needs no equivalent. */
 .muted,
 .field-hint,
 .app-header__sub { color: var(--ink-600); }
@@ -141,18 +189,26 @@ body { background: var(--paper); color: var(--ink-800); }
   transform: translateX(-50%);
   z-index: 500;
   padding: var(--sp-2) var(--sp-4);
-  background: var(--console-bg);
-  color: var(--console-fg);
+  background: var(--panel);
+  color: var(--ink-700);
   font-size: var(--fs-1);
-  border: 1px solid var(--console-line);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-2);
   max-width: 90%;
   text-align: center;
 }
-/* The status pill sits on a --console-* surface, which the contract keeps dark
-   in both modes — so the error state signals with the border and keeps the
-   always-light console foreground. A --danger text colour would be unreadable
-   here in one mode or the other. */
-.map-status.is-error { border-color: var(--danger); border-width: 2px; }
+/* This used to sit on --console-*, which the contract keeps dark in both
+   modes — a piece of instrument hardware floating over a soft light UI, and a
+   holdover from the HUD pack. It reads as a card now. The error state can use
+   the danger pair directly because both --danger and --danger-soft flip with
+   the theme, so the contrast holds in light and dark alike; that was the one
+   thing the console surface was buying, and it is no longer needed. */
+.map-status.is-error {
+  background: var(--danger-soft);
+  border-color: var(--danger);
+  color: var(--danger);
+}
 
 /* Filter chips */
 .chipset { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
@@ -171,7 +227,7 @@ body { background: var(--paper); color: var(--ink-800); }
 .chip.is-on {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-fill);
 }
 .chip--missing.is-on { background: var(--danger); border-color: var(--danger); }
 .chip--found.is-on   { background: var(--accent); border-color: var(--accent); }
@@ -192,10 +248,19 @@ body { background: var(--paper); color: var(--ink-800); }
   margin-right: 4px;
   vertical-align: middle;
 }
-.dot--missing  { background: var(--danger); }
-.dot--found    { background: var(--accent); }
-.dot--reunited { background: var(--ok); }
-.dot--searched { background: var(--ok); opacity: 0.45; border-radius: 2px; }
+/* Shape as well as colour, matching .pin-icon--* below — the legend is only
+   useful if its swatch looks like the thing on the map. */
+.dot--missing  { background: var(--status-missing); }
+.dot--found    { background: var(--status-found); border-radius: 3px; }
+.dot--reunited { background: var(--status-reunited); position: relative; }
+.dot--reunited::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  background: var(--panel);
+}
+.dot--searched { background: var(--status-coverage); opacity: 0.45; border-radius: 2px; }
 
 /* ------------------------------------------------- SEARCH COVERAGE ------- */
 
@@ -286,7 +351,15 @@ body { background: var(--paper); color: var(--ink-800); }
 
 /* Leaflet pins */
 /* The ring separates a pin from the basemap, which swaps light/dark with the
-   theme — so it tracks --panel rather than a fixed white. */
+   theme — so it tracks --panel rather than a fixed white.
+
+   Shape carries the report type alongside colour. Missing vs found is the
+   distinction the entire map turns on, and it was previously red vs indigo and
+   nothing else — red against green (reunited) being exactly the pair the
+   common colour vision deficiencies collapse. The dot's fill is set inline by
+   pinIcon(), so the shapes here work with whatever colour it is given:
+   circle = missing, rounded square = found, diamond = sighting, ring =
+   reunited. Keep these in step with .dot--* in the legend above. */
 .pin-icon__dot {
   display: block;
   width: 16px; height: 16px;
@@ -295,6 +368,30 @@ body { background: var(--paper); color: var(--ink-800); }
   border: 2px solid var(--panel);
   box-shadow: var(--shadow-2);
 }
+.pin-icon--found .pin-icon__dot { border-radius: 4px; }
+
+/* Rotated, so it is sized down to keep the 22.6px diagonal of a 16px square
+   inside the 22px icon box Leaflet was told to expect. */
+.pin-icon--sighting .pin-icon__dot {
+  width: 14px; height: 14px;
+  margin: 4px;
+  border-radius: 2px;
+  transform: rotate(45deg);
+}
+
+/* A ring, punched out with an overlay rather than a transparent background:
+   the fill colour arrives inline on this element and cannot be overridden from
+   here. An inset shadow was the obvious move and is the wrong one — it paints
+   inward from the edge, so what survives is a shrunken disc, not a ring. */
+.pin-icon--reunited .pin-icon__dot { position: relative; }
+.pin-icon--reunited .pin-icon__dot::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: var(--panel);
+}
+
 .pin-icon--drag .pin-icon__dot { width: 20px; height: 20px; margin: 1px; }
 
 .pet-popup { display: flex; gap: var(--sp-3); }
@@ -330,7 +427,7 @@ body { background: var(--paper); color: var(--ink-800); }
 .leaflet-bar a:hover { background: var(--panel-2); }
 .marker-cluster div {
   background: var(--accent);
-  color: #fff;                 /* text on an accent fill; every pack's accent is dark enough */
+  color: var(--on-fill);       /* dark text in dark mode; the accent lightens there */
   font-family: var(--font-ui);
   font-weight: 700;
 }
@@ -452,7 +549,7 @@ body { background: var(--paper); color: var(--ink-800); }
   height: 12rem;
   border: 1px dashed var(--line-strong);
   border-radius: var(--radius);
-  color: var(--ink-400);
+  color: var(--ink-600);
   font-size: var(--fs-1);
   letter-spacing: var(--tracking-cap);
 }
@@ -465,7 +562,7 @@ body { background: var(--paper); color: var(--ink-800); }
 .facts dt {
   font-size: var(--fs-0);
   letter-spacing: var(--tracking-cap);
-  color: var(--ink-400);
+  color: var(--ink-600);
 }
 .facts dd { margin: 0; }
 
@@ -481,7 +578,7 @@ body { background: var(--paper); color: var(--ink-800); }
 .sighting__photo { max-width: 14rem; border: 1px solid var(--line); display: block; margin: var(--sp-2) 0; }
 .sighting__meta {
   display: flex; gap: var(--sp-2); align-items: center;
-  font-size: var(--fs-0); color: var(--ink-400);
+  font-size: var(--fs-0); color: var(--ink-600);
 }
 .sighting__meta form { margin: 0; }
 
@@ -519,7 +616,7 @@ body { background: var(--paper); color: var(--ink-800); }
   border: 1px solid var(--line);
   background: var(--panel-3);
   font-size: var(--fs-0);
-  color: var(--ink-400);
+  color: var(--ink-600);
 }
 .report-card__title {
   display: block;
