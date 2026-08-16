@@ -365,12 +365,27 @@ class PetPhoto(db.Model):
 
 
 class Sighting(db.Model):
-    """Someone reports seeing a specific missing/found animal at a place."""
+    """Someone reports seeing an animal at a place.
+
+    ``pet_id`` is nullable, which is the whole point of a *standalone* sighting:
+    "loose dog on Elizabeth St, couldn't catch it". That is not a found report —
+    the person does not have the animal — and it cannot be attached to a missing
+    pet by someone who has no idea whose dog it is. Before this was nullable
+    there was nowhere to put that observation at all.
+
+    A standalone sighting can later be claimed by an owner who thinks it is
+    their pet; see ``PetLink``. Claiming links it, and never moves it — the
+    sighting still belongs to whoever logged it.
+    """
 
     __tablename__ = "sightings"
 
     id = db.Column(db.Integer, primary_key=True)
-    pet_id = db.Column(db.Integer, db.ForeignKey("pets.id"), nullable=False, index=True)
+    pet_id = db.Column(db.Integer, db.ForeignKey("pets.id"), nullable=True, index=True)
+    # Only meaningful on a standalone sighting, where there is no report to
+    # inherit it from. Lets the matcher shortlist by animal.
+    species = db.Column(db.String(24), nullable=True)
+    description = db.Column(db.String(500), nullable=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
 
     lat = db.Column(db.Float, nullable=False)
@@ -503,6 +518,54 @@ class SearchTrack(db.Model):
         return (user.id == self.user_id
                 or user.id == self.pet.user_id
                 or user.is_moderator)
+
+
+class PetLink(db.Model):
+    """An owner's claim that some other observation is their missing pet.
+
+    Three things can be claimed, which is why there are two nullable targets
+    rather than one:
+
+    * a standalone sighting (``Sighting.pet_id`` is null),
+    * a sighting logged on somebody else's report,
+    * a "found" report.
+
+    Exactly one of ``sighting_id`` / ``linked_pet_id`` is set — enforced by a
+    check constraint, because a row with both or neither has no meaning and
+    would render as a blank entry on somebody's page.
+
+    A link never moves or edits what it points at. The sighting stays on the
+    report it was logged against and still belongs to whoever logged it; the
+    found report is untouched. Claiming is additive and reversible, so an owner
+    guessing wrong costs nothing but a click to undo.
+    """
+
+    __tablename__ = "pet_links"
+    __table_args__ = (
+        db.UniqueConstraint("pet_id", "sighting_id", name="uq_pet_links_sighting"),
+        db.UniqueConstraint("pet_id", "linked_pet_id", name="uq_pet_links_pet"),
+        db.CheckConstraint(
+            "(sighting_id IS NOT NULL AND linked_pet_id IS NULL) OR "
+            "(sighting_id IS NULL AND linked_pet_id IS NOT NULL)",
+            name="ck_pet_links_one_target"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    # The report doing the claiming — the missing pet.
+    pet_id = db.Column(db.Integer, db.ForeignKey("pets.id"), nullable=False, index=True)
+
+    sighting_id = db.Column(db.Integer, db.ForeignKey("sightings.id"), nullable=True, index=True)
+    linked_pet_id = db.Column(db.Integer, db.ForeignKey("pets.id"), nullable=True, index=True)
+
+    created_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
+
+    pet = db.relationship("Pet", foreign_keys=[pet_id],
+                          backref=db.backref("links", lazy="dynamic",
+                                             cascade="all, delete-orphan"))
+    sighting = db.relationship("Sighting", foreign_keys=[sighting_id])
+    linked_pet = db.relationship("Pet", foreign_keys=[linked_pet_id])
+    created_by = db.relationship("User", foreign_keys=[created_by_id])
 
 
 class ContactMessage(db.Model):

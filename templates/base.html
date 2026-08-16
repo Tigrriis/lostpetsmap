@@ -27,6 +27,10 @@
     <nav class="app-nav">
       <a class="btn btn--primary btn--sm" href="{{ url_for('pets.new_pet') }}">+ Report a pet</a>
       {% if current_user.is_authenticated %}
+        <a class="btn btn--ghost btn--sm nav-link" href="{{ url_for('pets.new_sighting') }}">
+          Report a sighting</a>
+      {% endif %}
+      {% if current_user.is_authenticated %}
         <a class="btn btn--ghost btn--sm nav-link" href="{{ url_for('pets.my_pets') }}">My reports</a>
         {% if current_user.is_moderator %}
           <a class="btn btn--ghost btn--sm nav-link" href="{{ url_for('moderation.queue') }}">Moderate</a>

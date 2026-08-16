@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}Possible matches · {{ SITE_NAME }}{% endblock %}
+
+{% macro claim(label, field, value) %}
+  <form method="post" action="{{ url_for('pets.link_observation', pet_id=pet.id) }}"
+        class="inline-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="{{ field }}" value="{{ value }}">
+    <button class="btn btn--primary btn--sm" type="submit">{{ label }}</button>
+  </form>
+{% endmacro %}
+
+{% block content %}
+<header class="page-head">
+  <div>
+    <h1>Possible matches</h1>
+    <p class="muted">
+      {{ SPECIES[pet.species] }}s reported within {{ radius_km|int }} km of where
+      {{ pet.name or 'your pet' }} went missing, from around that time onwards.
+      Nothing here is confirmed — it's a shortlist to look through.
+    </p>
+  </div>
+  <a class="btn btn--ghost" href="{{ url_for('pets.pet_detail', pet_id=pet.id) }}">
+    Back to report
+  </a>
+</header>
+
+<section class="panel">
+  <div class="panel__head">
+    <span class="panel__title">Found reports</span>
+    <span class="tag">{{ founds|length }}</span>
+  </div>
+  <div class="panel__body">
+    {% if founds %}
+      <ul class="report-list">
+        {% for f in founds %}
+          <li class="report-card">
+            <a class="report-card__photo" href="{{ url_for('pets.pet_detail', pet_id=f.id) }}">
+              {% if f.primary_photo %}
+                <img src="{{ url_for('pets.pet_photo', pet_id=f.id, photo_id=f.primary_photo.id, size='thumb') }}" alt="">
+              {% else %}
+                <span class="report-card__nophoto">no photo</span>
+              {% endif %}
+            </a>
+            <div class="report-card__body">
+              <a class="report-card__title" href="{{ url_for('pets.pet_detail', pet_id=f.id) }}">
+                Found {{ SPECIES[f.species]|lower }}{% if f.locality %} · {{ f.locality }}{% endif %}
+              </a>
+              <p class="report-card__meta">
+                {{ f.last_seen_at | localdate }} ({{ f.last_seen_at | ago }})
+                {%- if f.colour %} · {{ f.colour }}{% endif %}
+                {%- if f.breed %} · {{ f.breed }}{% endif %}
+              </p>
+              {% if f.description %}<p class="report-card__meta">{{ f.description[:160] }}</p>{% endif %}
+            </div>
+            <div class="report-card__actions">
+              {{ claim("This might be mine", "linked_pet_id", f.id) }}
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">No found reports nearby yet.</p>
+    {% endif %}
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel__head">
+    <span class="panel__title">Sightings</span>
+    <span class="tag">{{ sightings|length }}</span>
+  </div>
+  <div class="panel__body">
+    {% if sightings %}
+      <ul class="report-list">
+        {% for s in sightings %}
+          <li class="report-card">
+            <a class="report-card__photo"
+               href="{% if s.pet_id %}{{ url_for('pets.pet_detail', pet_id=s.pet_id) }}{% else %}#{% endif %}">
+              {% if s.has_photo %}
+                <img src="{{ url_for('pets.sighting_photo', sighting_id=s.id) }}" alt="">
+              {% else %}
+                <span class="report-card__nophoto">no photo</span>
+              {% endif %}
+            </a>
+            <div class="report-card__body">
+              <strong>
+                {% if s.pet_id %}Sighting on another report{% else %}Unidentified sighting{% endif %}
+              </strong>
+              <p class="report-card__meta">
+                {{ s.seen_at | localtime }} ({{ s.seen_at | ago }})
+                {%- if s.description %} · {{ s.description }}{% endif %}
+              </p>
+              {% if s.note %}<p class="report-card__meta">{{ s.note[:160] }}</p>{% endif %}
+            </div>
+            <div class="report-card__actions">
+              {{ claim("This might be mine", "sighting_id", s.id) }}
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">No unclaimed sightings nearby yet.</p>
+    {% endif %}
+  </div>
+</section>
+
+<p class="detail__footnote">
+  Anything you add appears on your report as a sighting. You can unlink it there
+  if it turns out not to be them.
+</p>
+{% endblock %}

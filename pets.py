@@ -36,6 +36,7 @@ from flask import (
 )
 from flask_login import current_user, login_required
 from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError
 
 from auth import active_user_required, verified_required
 from extensions import db
@@ -43,12 +44,14 @@ from mailer import send_owner_message, send_sighting_alert
 from models import (
     MICROCHIP, REPORT_FOUND, REPORT_MISSING, REPORT_TYPES, SEXES, SIZES,
     SPECIES, STATUS_ACTIVE, STATUS_CLOSED, STATUS_REUNITED, STATUSES,
-    TRACK_SOURCES, ContactMessage, Pet, PetPhoto, Sighting,
+    TRACK_SOURCES, ContactMessage, Pet, PetLink, PetPhoto, Sighting,
     photos_uploaded_since, recent_count,
 )
 from services import geocode as geocode_service
 from services import images
-from services.geo import bbox_around, parse_bbox, parse_latlng, within_bounds
+from services.geo import (
+    bbox_around, haversine_m, parse_bbox, parse_latlng, within_bounds,
+)
 from services.localtime import now_utc, parse_local_input, to_input_value
 from services.localities import LOCALITIES
 
@@ -468,7 +471,7 @@ def pet_detail(pet_id: int):
         exact=exact,
         lat=pet.lat if exact else pet.public_lat,
         lng=pet.lng if exact else pet.public_lng,
-        sightings=pet.visible_sightings().all(),
+        sightings=_observations(pet),
         can_edit=pet.can_edit(current_user),
         species_label=SPECIES.get(pet.species, "Animal"),
         sex_label=SEXES.get(pet.sex, "Unknown"),
@@ -479,6 +482,252 @@ def pet_detail(pet_id: int):
         cell_m=current_app.config["COVERAGE_CELL_M"],
         trim_m=int(current_app.config["TRACK_TRIM_M"]),
     )
+
+
+# ── Standalone sightings and matching ──────────────────────────────────────
+
+class Observation:
+    """A sighting as shown on a report's page.
+
+    Three different rows render as one thing here: the report's own sightings,
+    sightings it has linked, and found reports it has linked. The owner asked
+    for linked items to read as ordinary sightings, so the only thing that
+    distinguishes them in the page is the unlink control — which has to exist,
+    or a wrong guess could never be taken back.
+    """
+
+    def __init__(self, *, seen_at, note, lat, lng, reporter, photo_url=None,
+                 link_id=None, source_url=None, sighting_id=None, user_id=None):
+        self.seen_at = seen_at
+        self.note = note
+        self.lat = lat
+        self.lng = lng
+        self.reporter = reporter
+        self.photo_url = photo_url
+        self.link_id = link_id          # set when it arrived via a claim
+        self.source_url = source_url    # where it was originally posted
+        self.sighting_id = sighting_id
+        self.user_id = user_id
+
+    @property
+    def has_photo(self) -> bool:
+        return bool(self.photo_url)
+
+
+def _observations(pet: Pet) -> list[Observation]:
+    """Everything shown in the sightings list, own and linked, newest last."""
+    items: list[Observation] = []
+
+    for s in pet.visible_sightings():
+        items.append(Observation(
+            seen_at=s.seen_at, note=s.note, lat=s.lat, lng=s.lng,
+            reporter=s.reporter.public_name if s.reporter else "",
+            photo_url=url_for("pets.sighting_photo", sighting_id=s.id) if s.has_photo else None,
+            sighting_id=s.id, user_id=s.user_id))
+
+    for link in pet.links:
+        if link.sighting_id:
+            s = link.sighting
+            if s is None or s.is_removed:
+                continue
+            items.append(Observation(
+                seen_at=s.seen_at, note=s.note, lat=s.lat, lng=s.lng,
+                reporter=s.reporter.public_name if s.reporter else "",
+                photo_url=(url_for("pets.sighting_photo", sighting_id=s.id)
+                           if s.has_photo else None),
+                link_id=link.id, sighting_id=s.id, user_id=s.user_id,
+                source_url=(url_for("pets.pet_detail", pet_id=s.pet_id)
+                            if s.pet_id else None)))
+        else:
+            other = link.linked_pet
+            if other is None or other.is_removed:
+                continue
+            photo = other.primary_photo
+            items.append(Observation(
+                # A found report's "last seen" is when it was found.
+                seen_at=other.last_seen_at, note=other.description,
+                lat=other.public_lat, lng=other.public_lng,
+                reporter=other.reporter.public_name if other.reporter else "",
+                photo_url=(url_for("pets.pet_photo", pet_id=other.id,
+                                   photo_id=photo.id, size="thumb") if photo else None),
+                link_id=link.id,
+                source_url=url_for("pets.pet_detail", pet_id=other.id)))
+
+    items.sort(key=lambda o: o.seen_at or now_utc())
+    return items
+
+
+def _match_candidates(pet: Pet, limit: int = 25) -> dict:
+    """Observations that might plausibly be this animal.
+
+    A shortlist, not a search: same species, near enough to have walked there,
+    and after it went missing. Showing an owner every sighting in Tasmania would
+    be worse than showing none — the point is a page they can actually scan.
+    """
+    cfg = current_app.config
+    radius_m = cfg["MATCH_RADIUS_KM"] * 1000
+    since = pet.last_seen_at - timedelta(days=cfg["MATCH_BEFORE_DAYS"])
+    box = bbox_around(pet.lat, pet.lng, radius_m)
+
+    already_sightings = {l.sighting_id for l in pet.links if l.sighting_id}
+    already_pets = {l.linked_pet_id for l in pet.links if l.linked_pet_id}
+
+    sightings = (Sighting.query
+                 .filter(Sighting.is_removed.is_(False))
+                 .filter(Sighting.pet_id.isnot(pet.id) | Sighting.pet_id.is_(None))
+                 .filter(Sighting.seen_at >= since)
+                 .filter(Sighting.lat.between(box.south, box.north))
+                 .filter(Sighting.lng.between(box.west, box.east))
+                 .order_by(Sighting.seen_at.desc()).limit(limit * 3).all())
+
+    near_sightings = [
+        s for s in sightings
+        if s.pet_id != pet.id
+        and s.id not in already_sightings
+        and (s.species in (None, pet.species))
+        and haversine_m(pet.lat, pet.lng, s.lat, s.lng) <= radius_m
+    ][:limit]
+
+    founds = (Pet.query
+              .filter(Pet.is_removed.is_(False))
+              .filter(Pet.report_type == REPORT_FOUND)
+              .filter(Pet.species == pet.species)
+              .filter(Pet.last_seen_at >= since)
+              .filter(Pet.public_lat.between(box.south, box.north))
+              .filter(Pet.public_lng.between(box.west, box.east))
+              .order_by(Pet.last_seen_at.desc()).limit(limit * 3).all())
+
+    near_founds = [
+        f for f in founds
+        if f.id not in already_pets
+        and haversine_m(pet.lat, pet.lng, f.public_lat, f.public_lng) <= radius_m
+    ][:limit]
+
+    return {"sightings": near_sightings, "founds": near_founds}
+
+
+@pets_bp.route("/sightings/new", methods=["GET", "POST"])
+@verified_required
+def new_sighting():
+    """Log an animal you saw but could not identify or catch.
+
+    Deliberately not a found report: you do not have the animal, and you may
+    have no idea whose it is. Owners of missing pets can claim one of these
+    later if it looks like theirs.
+    """
+    cfg = current_app.config
+    if request.method == "POST":
+        coords = parse_latlng(request.form.get("lat"), request.form.get("lng"))
+        seen = parse_local_input(request.form.get("seen_at"))
+        species = (request.form.get("species") or "").lower()
+
+        if coords is None or not within_bounds(coords[0], coords[1], cfg["TAS_BOUNDS"]):
+            flash("Drop a pin where you saw the animal.", "error")
+        elif seen is None or seen > now_utc() + timedelta(hours=1):
+            flash("Enter a valid date and time.", "error")
+        elif species not in SPECIES:
+            flash("Choose what kind of animal it was.", "error")
+        elif recent_count(Sighting, Sighting.user_id,
+                          current_user.id) >= cfg["MAX_SIGHTINGS_PER_HOUR"]:
+            flash("That's a lot of sightings in an hour — try again later.", "error")
+        else:
+            sighting = Sighting(
+                pet_id=None, user_id=current_user.id,
+                lat=coords[0], lng=coords[1], seen_at=seen,
+                species=species,
+                description=_clean(request.form.get("description"), 500),
+                note=_clean(request.form.get("note"), 1000),
+            )
+            upload = request.files.get("photo")
+            if upload and upload.filename:
+                if photos_uploaded_since(current_user.id) >= cfg["MAX_PHOTOS_PER_DAY"]:
+                    flash(f"That's {cfg['MAX_PHOTOS_PER_DAY']} photos today, the daily "
+                          "limit. The sighting was saved without the photo.", "error")
+                else:
+                    processed = images.process_single(upload.read())
+                    if processed:
+                        sighting.photo, sighting.photo_mimetype = processed
+            db.session.add(sighting)
+            db.session.commit()
+            flash("Sighting posted. If it's someone's missing pet, they can claim it "
+                  "from their report.", "success")
+            return redirect(url_for("map_page"))
+
+    return render_template("sighting_form.html", species=SPECIES,
+                           bounds=cfg["TAS_BOUNDS"], centre=cfg["TAS_CENTRE"])
+
+
+@pets_bp.route("/pets/<int:pet_id>/matches")
+@active_user_required
+def pet_matches(pet_id: int):
+    """Candidate observations the owner can claim as their pet."""
+    pet = _get_pet_or_404(pet_id)
+    _require_owner(pet)
+    candidates = _match_candidates(pet)
+    return render_template("pet_matches.html", pet=pet,
+                           sightings=candidates["sightings"],
+                           founds=candidates["founds"],
+                           species=SPECIES,
+                           radius_km=current_app.config["MATCH_RADIUS_KM"])
+
+
+@pets_bp.route("/pets/<int:pet_id>/link", methods=["POST"])
+@active_user_required
+def link_observation(pet_id: int):
+    """Claim a sighting or a found report as possibly this pet."""
+    pet = _get_pet_or_404(pet_id)
+    _require_owner(pet)
+
+    sighting_id = request.form.get("sighting_id", type=int)
+    linked_pet_id = request.form.get("linked_pet_id", type=int)
+    if bool(sighting_id) == bool(linked_pet_id):
+        abort(400)          # exactly one target, per the model's constraint
+
+    if sighting_id:
+        target = db.session.get(Sighting, sighting_id)
+        if target is None or target.is_removed:
+            abort(404)
+        if target.pet_id == pet.id:
+            flash("That sighting is already on this report.", "info")
+            return redirect(url_for("pets.pet_detail", pet_id=pet.id))
+        link = PetLink(pet_id=pet.id, sighting_id=sighting_id,
+                       created_by_id=current_user.id)
+    else:
+        target = db.session.get(Pet, linked_pet_id)
+        if target is None or target.is_removed or target.id == pet.id:
+            abort(404)
+        link = PetLink(pet_id=pet.id, linked_pet_id=linked_pet_id,
+                       created_by_id=current_user.id)
+
+    db.session.add(link)
+    try:
+        db.session.commit()
+    except IntegrityError:
+        # The unique constraints make a double-click harmless rather than a 500.
+        db.session.rollback()
+        flash("That's already linked to this report.", "info")
+        return redirect(url_for("pets.pet_detail", pet_id=pet.id))
+
+    flash("Added to your report. Unlink it if it turns out not to be them.",
+          "success")
+    return redirect(url_for("pets.pet_detail", pet_id=pet.id))
+
+
+@pets_bp.route("/links/<int:link_id>/delete", methods=["POST"])
+@active_user_required
+def unlink_observation(link_id: int):
+    link = db.session.get(PetLink, link_id)
+    if link is None:
+        abort(404)
+    if not link.pet.can_edit(current_user):
+        abort(403)
+    pet_id = link.pet_id
+    # A hard delete, unlike everything else here: the link is the owner's own
+    # guess about their own report, not somebody else's content to preserve.
+    db.session.delete(link)
+    db.session.commit()
+    flash("Unlinked.", "info")
+    return redirect(url_for("pets.pet_detail", pet_id=pet_id))
 
 
 @pets_bp.route("/mine")

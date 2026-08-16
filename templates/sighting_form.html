@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Report a sighting · {{ SITE_NAME }}{% endblock %}
+
+{% block head_links %}
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+{% endblock %}
+
+{% block content %}
+<form class="form-page" method="post" enctype="multipart/form-data" id="sighting-standalone">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+  <header class="page-head">
+    <h1>Report a sighting</h1>
+    <p class="muted">
+      For an animal you saw but couldn't catch, and can't identify. This isn't a
+      found report — you don't have them — and you don't need to know whose pet it
+      is. Owners of missing pets can find it and claim it from their own report.
+    </p>
+  </header>
+
+  <section class="panel">
+    <div class="panel__head"><span class="panel__title">What you saw</span></div>
+    <div class="panel__body">
+      <div class="form-grid">
+        <div class="field">
+          <label class="field-label" for="species">Animal <span class="req">*</span></label>
+          <select class="input" id="species" name="species" required>
+            <option value="">Choose…</option>
+            {% for key, label in species.items() %}
+              <option value="{{ key }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label class="field-label" for="seen_at">When <span class="req">*</span></label>
+          <input class="input" type="datetime-local" id="seen_at" name="seen_at" required>
+          <p class="field-hint">Tasmanian local time.</p>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="description">Description</label>
+        <input class="input" type="text" id="description" name="description" maxlength="500"
+               placeholder="e.g. ginger tabby, no collar, very thin">
+        <p class="field-hint">Colour and markings are what an owner will recognise.</p>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="note">Anything else</label>
+        <textarea class="input" id="note" name="note" rows="3" maxlength="1000"
+                  placeholder="Which way it was heading, whether it would come to you, condition…"></textarea>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="photo">Photo (optional)</label>
+        <input class="input" type="file" id="photo" name="photo" accept="image/*">
+        <p class="field-hint">
+          If the photo has location data, the pin below moves to where it was taken.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel__head"><span class="panel__title">Where <span class="req">*</span></span></div>
+    <div class="panel__body">
+      <div id="pin-map" class="pin-map" role="application"
+           aria-label="Click to set where you saw the animal"></div>
+      <p class="pin-readout" id="pin-readout">Click the map to drop a pin.</p>
+      <input type="hidden" name="lat" id="lat">
+      <input type="hidden" name="lng" id="lng">
+      <p class="field-hint">
+        Sightings are shown at the exact spot. Unlike a missing pet's "last seen",
+        a street where a stray was spotted isn't anybody's home address.
+      </p>
+    </div>
+  </section>
+
+  <div class="form-actions">
+    <button type="submit" class="btn btn--primary">Post sighting</button>
+    <a class="btn btn--ghost" href="{{ url_for('map_page') }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script>
+    window.PETMAP_SIGHTING = {
+      bounds: {{ bounds | tojson }},
+      centre: {{ centre | tojson }}
+    };
+  </script>
+  <script src="{{ url_for('static', filename='petmap/exif.js') }}"></script>
+  <script src="{{ url_for('static', filename='petmap/sighting_form.js') }}"></script>
+{% endblock %}

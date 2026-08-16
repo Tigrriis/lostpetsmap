@@ -161,15 +161,25 @@
               </div>
               {% if s.note %}<p class="sighting__note">{{ s.note }}</p>{% endif %}
               {% if s.has_photo %}
-                <img class="sighting__photo"
-                     src="{{ url_for('pets.sighting_photo', sighting_id=s.id) }}"
-                     alt="Sighting photo">
+                <img class="sighting__photo" src="{{ s.photo_url }}" alt="Sighting photo">
               {% endif %}
               <div class="sighting__meta">
-                by {{ s.reporter.public_name }}
-                {% if current_user.is_authenticated and (current_user.id == s.user_id
-                       or current_user.id == pet.user_id or current_user.is_moderator) %}
-                  <form method="post" action="{{ url_for('pets.delete_sighting', sighting_id=s.id) }}"
+                by {{ s.reporter }}
+                {% if s.source_url %}
+                  · <a href="{{ s.source_url }}">where it was posted</a>
+                {% endif %}
+                {# Linked entries render like any other sighting, but the owner
+                   needs a way to undo a wrong guess. #}
+                {% if s.link_id and can_edit %}
+                  <form method="post" action="{{ url_for('pets.unlink_observation', link_id=s.link_id) }}"
+                        data-confirm="Unlink this from the report?">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn-link" type="submit">unlink</button>
+                  </form>
+                {% elif s.sighting_id and current_user.is_authenticated
+                        and (current_user.id == s.user_id or current_user.id == pet.user_id
+                             or current_user.is_moderator) %}
+                  <form method="post" action="{{ url_for('pets.delete_sighting', sighting_id=s.sighting_id) }}"
                         data-confirm="Remove this sighting?">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button class="btn-link" type="submit">remove</button>
@@ -181,6 +191,15 @@
         </ol>
       {% else %}
         <p class="muted">No sightings logged yet.</p>
+      {% endif %}
+
+      {% if can_edit and pet.report_type == 'missing' and pet.status == 'active' %}
+        <p class="field-hint">
+          <a href="{{ url_for('pets.pet_matches', pet_id=pet.id) }}">
+            Look through possible matches →
+          </a>
+          Found reports and unidentified sightings near where they went missing.
+        </p>
       {% endif %}
 
       {% if current_user.is_authenticated and pet.status == 'active' %}

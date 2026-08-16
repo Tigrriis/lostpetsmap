@@ -131,6 +131,13 @@ class Config:
     # repeat of an address already in geocode_cache never reaches Google and so
     # never spends anything. Filling in one report takes two or three.
     MAX_GEOCODES_PER_HOUR = 30
+
+    # Shortlisting possible matches for a missing pet. Wide enough that a
+    # cat found three suburbs away still shows up, tight enough that the
+    # list stays scannable. The date window reaches slightly *before* the
+    # pet went missing, because "last seen" is often a best guess.
+    MATCH_RADIUS_KM = 20.0
+    MATCH_BEFORE_DAYS = 2
     MAP_RESULT_LIMIT = 2000            # markers returned by one /api/pets call
     DEFAULT_ACTIVE_DAYS = 180          # reports older than this are hidden by default
 
