@@ -15,7 +15,7 @@ def test_blur_moves_the_public_point_but_keeps_the_real_one(app, user):
 
     assert (pet.public_lat, pet.public_lng) != (pet.lat, pet.lng)
     offset = haversine_m(pet.lat, pet.lng, pet.public_lat, pet.public_lng)
-    assert 0 < offset <= 250.0
+    assert 0 < offset <= app.config["BLUR_RADIUS_M"]
 
 
 def test_no_blur_publishes_the_exact_point(app, user):
@@ -29,14 +29,15 @@ def test_blur_offset_is_stable_across_saves(app, user):
     Anyone sampling the public feed repeatedly could average the samples back
     to the centre, so an unchanged location must keep an unchanged offset.
     """
+    radius = app.config["BLUR_RADIUS_M"]
     pet = make_pet(user, blur_location=True)
     first = (pet.public_lat, pet.public_lng)
 
-    pet.set_location(pet.lat, pet.lng, blur=True, radius_m=250.0)
+    pet.set_location(pet.lat, pet.lng, blur=True, radius_m=radius)
     assert (pet.public_lat, pet.public_lng) == first
 
     # Genuinely moving the pin must move the public point too.
-    pet.set_location(-42.88, 147.32, blur=True, radius_m=250.0)
+    pet.set_location(-42.88, 147.32, blur=True, radius_m=radius)
     assert (pet.public_lat, pet.public_lng) != first
 
 

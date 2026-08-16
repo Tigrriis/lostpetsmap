@@ -60,11 +60,28 @@ Tests:
 
 **Locations are stored twice.** `Pet.lat/lng` is where the reporter actually
 pinned. `Pet.public_lat/public_lng` is what the world sees — for a missing pet
-that is a random point within 250 m, because "last seen" is nearly always the
-owner's own address. Anything public must serve the public pair;
-`pets._may_see_exact` is the single place that decides otherwise. The random
-offset is generated once and stored, never re-rolled on save: repeated sampling
-of a re-rolled offset averages back to the true point.
+that is a random point within `BLUR_RADIUS_M` (100 m), because "last seen" is
+nearly always the owner's own address. Anything public must serve the public
+pair; `pets._may_see_exact` is the single place that decides otherwise. The
+random offset is generated once and stored, never re-rolled on save: repeated
+sampling of a re-rolled offset averages back to the true point. Lowering the
+radius therefore leaves older reports at their wider offset — the admin
+"re-blur out-of-spec reports" button on `/moderate` sweeps those up.
+
+**Search coverage is cells, not lines.** A finished `SearchTrack` publishes the
+50 m grid squares it passed through; the GPS line goes only to the searcher,
+the pet's owner, and moderators. Note that at 50 m the coverage grid resolves
+finer than the 100 m location blur, so a concentrated search does hint at where
+a pet actually went missing. That is an accepted trade, recorded in `config.py`
+next to both settings.
+
+**The track trim is a backstop, not concealment.** `TRACK_TRIM_M` is 50 m: it
+removes the immediate vicinity of wherever the start button was pressed, which
+is a few doors down the same street. It will not hide an address. What protects
+one is the warning on the recording form telling people not to start at home,
+plus a first-run confirmation on each device. Treat that copy as load-bearing —
+if you reword it, do not let it imply the trim does more than it does. Drone
+imports are deliberately not trimmed at all (see `tracks._finalise`).
 
 **Removal is a flag, never a DELETE.** Moderation has to be reversible, so every
 query behind a public surface filters `is_removed == False`. Forget the filter

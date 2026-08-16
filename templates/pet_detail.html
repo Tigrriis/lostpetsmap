@@ -242,6 +242,18 @@
       {% if current_user.is_authenticated and pet.status == 'active' and not pet.is_removed %}
         <div class="search-controls">
           <div id="search-idle">
+
+            <div class="safety-warning" role="alert">
+              <span class="safety-warning__icon" aria-hidden="true">⚠</span>
+              <div>
+                <strong>Don't start recording at your home.</strong>
+                Your track becomes part of a public coverage map. Walk or drive to the
+                search area first, then press start — and stop before you head back.
+                Only about {{ trim_m|int }} m is trimmed from each end, which is a few
+                doors down the same street, <em>not</em> enough to hide an address.
+              </div>
+            </div>
+
             <div class="field">
               <label class="field-label" for="track-source">How are you searching?</label>
               <select class="input" id="track-source">
@@ -256,8 +268,7 @@
             <p class="field-hint">
               Your phone records where you go and adds it to the coverage map when you
               finish. <strong>Keep this screen open</strong> — browsers stop reading GPS
-              once the screen locks. The first and last {{ trim_m }} m of every track are
-              trimmed off before saving, so it never shows where you set out from.
+              once the screen locks.
             </p>
           </div>
 
@@ -383,6 +394,7 @@
         {% endfor %}
       ],
       petId: {{ pet.id }},
+      trimM: {{ trim_m|int }},
       canLogSearch: {{ (current_user.is_authenticated and pet.status == 'active'
                         and not pet.is_removed) | tojson }},
       urls: {

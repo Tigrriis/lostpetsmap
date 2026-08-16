@@ -26,6 +26,7 @@
   var MIN_MOVE_M = 5;           // ignore GPS jitter while standing still
   var MAX_ACCURACY_M = 50;      // discard wildly imprecise fixes
   var STORE_KEY = "petmap-track-" + CFG.petId;
+  var TRIM_M = CFG.trimM || 50; // quoted in the safety prompt; server decides it
 
   var state = null;             // {trackId, startedAt, buffer[], sent, distance}
   var watchId = null;
@@ -203,11 +204,37 @@
 
   // ---------- Actions ----------
 
+  // Acknowledged once per device, not per search. The banner above the button
+  // is visible every time regardless; this exists so the first recording on a
+  // phone cannot be started by someone who scrolled straight past it. Nagging
+  // on every search would train people to dismiss it without reading.
+  var ACK_KEY = "petmap-track-safety-ack";
+
+  function safetyAcknowledged() {
+    try {
+      if (localStorage.getItem(ACK_KEY) === "1") return true;
+    } catch (e) { /* private mode: ask every time, which is the safe default */ }
+
+    var ok = window.confirm(
+      "Before you start:\n\n" +
+      "Your search track becomes part of a public coverage map.\n\n" +
+      "Don't start recording at your home address. Get to the search area " +
+      "first, and stop recording before you head back. Only about " +
+      TRIM_M + " m is trimmed from each end — that is not enough to hide " +
+      "where you live.\n\n" +
+      "Start recording now?");
+    if (ok) {
+      try { localStorage.setItem(ACK_KEY, "1"); } catch (e) { /* fine */ }
+    }
+    return ok;
+  }
+
   el.start.addEventListener("click", function () {
     if (!navigator.geolocation) {
       window.alert("This browser can't share a location, so a search can't be recorded.");
       return;
     }
+    if (!safetyAcknowledged()) return;
     el.start.disabled = true;
     post(CFG.urls.start, { source: el.source ? el.source.value : "on_foot" })
       .then(function (data) {

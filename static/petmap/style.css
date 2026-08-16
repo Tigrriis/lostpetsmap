@@ -193,6 +193,28 @@ body { background: var(--paper); color: var(--ink-800); }
   margin-bottom: var(--sp-4);
 }
 
+/* Shown every time, above the start button. The trim is only ~50 m now, so
+   this advice is the actual protection rather than a footnote to it. */
+.safety-warning {
+  display: flex;
+  gap: var(--sp-3);
+  align-items: flex-start;
+  padding: var(--sp-3) var(--sp-4);
+  margin-bottom: var(--sp-4);
+  background: var(--warn-soft);
+  border: 1px solid var(--warn);
+  border-left-width: 4px;
+  font-size: var(--fs-2);
+  line-height: 1.5;
+}
+.safety-warning__icon {
+  font-size: var(--fs-4);
+  line-height: 1.2;
+  color: var(--warn);
+  flex: none;
+}
+.safety-warning strong { display: block; margin-bottom: 2px; }
+
 .live-readout {
   display: flex;
   gap: var(--sp-6);

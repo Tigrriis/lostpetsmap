@@ -9,6 +9,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from flask import current_app
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -74,7 +75,11 @@ def make_pet(user, **overrides) -> Pet:
     blur = fields.pop("blur_location", True)
 
     pet = Pet(user_id=user.id, **fields)
-    pet.set_location(lat, lng, blur=blur, radius_m=250.0)
+    # The configured radius, not a literal: a fixture pinned to an old value
+    # produces pets that are out of spec the moment the setting changes, which
+    # then fails tests that have nothing to do with blurring.
+    pet.set_location(lat, lng, blur=blur,
+                     radius_m=current_app.config["BLUR_RADIUS_M"])
     _db.session.add(pet)
     _db.session.commit()
     return pet

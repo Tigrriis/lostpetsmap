@@ -147,7 +147,13 @@ def test_an_unrelated_signed_in_user_does_not_see_the_line(app, client, user):
 
 
 def test_the_stored_line_is_already_trimmed(app, client, user):
-    """Trimming happens on write, so the untrimmed path is never in the database."""
+    """Trimming happens on write, so the untrimmed path is never in the database.
+
+    The trim is only ~50 m now, which removes the immediate vicinity of the
+    start button and no more — it is a backstop, not concealment. The advice
+    not to start at home is what actually protects an address; see
+    test_recording_form_warns_against_starting_at_home.
+    """
     pet = make_pet(user)
     login(client)
     points = walk_points()
@@ -159,7 +165,24 @@ def test_the_stored_line_is_already_trimmed(app, client, user):
     assert stored[-1][:2] != points[-1][:2]
 
     from services.geo import haversine_m
-    assert haversine_m(points[0][0], points[0][1], stored[0][0], stored[0][1]) >= 180
+    trim = app.config["TRACK_TRIM_M"]
+    start_gap = haversine_m(points[0][0], points[0][1], stored[0][0], stored[0][1])
+    end_gap = haversine_m(points[-1][0], points[-1][1], stored[-1][0], stored[-1][1])
+    # At least the configured trim, allowing one fix of quantisation either way.
+    assert start_gap >= trim * 0.9
+    assert end_gap >= trim * 0.9
+
+
+def test_recording_form_warns_against_starting_at_home(app, client, user):
+    """The warning is the protection now, so its absence is a real regression."""
+    pet = make_pet(user)
+    login(client)
+    body = client.get(f"/pets/{pet.id}").get_data(as_text=True)
+
+    assert "Don't start recording at your home" in body
+    assert "safety-warning" in body
+    # It must not overstate what the trim does.
+    assert "not</em> enough to hide an address" in body
 
 
 def test_main_map_coverage_never_returns_lines(app, client, user):

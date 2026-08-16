@@ -80,11 +80,19 @@ class Config:
     # lines up instead of interleaving.
     COVERAGE_GRID_REF_LAT = -42.15
 
-    # A track usually starts and ends at the searcher's car or front door.
-    # Both ends are trimmed before anything is stored — never merely hidden at
-    # render time, so there is no exact copy to leak later. Short walks trim by
-    # fraction instead, so something always survives.
-    TRACK_TRIM_M = 200.0
+    # Both ends of a track are trimmed before anything is stored — never merely
+    # hidden at render time, so there is no exact copy to leak later. Short
+    # walks trim by fraction instead, so something always survives.
+    #
+    # 50 m is a deliberate reduction from the 200 m this started at, chosen to
+    # keep more real coverage. Be clear about what it now does: it removes the
+    # immediate vicinity of wherever the button was pressed, and that is all.
+    # It does NOT conceal a house — 50 m is a few doors down the same street.
+    # The protection is now primarily the warning on the recording form telling
+    # people not to start at their own address; the trim is a backstop for the
+    # first few GPS fixes, not a substitute for that advice. Any copy describing
+    # this must not imply more than it delivers.
+    TRACK_TRIM_M = 50.0
     TRACK_TRIM_MAX_FRACTION = 0.25
 
     TRACK_MAX_POINTS = 20_000          # ~28 h at one fix every 5 s
