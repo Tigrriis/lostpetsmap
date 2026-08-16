@@ -3,7 +3,7 @@ from conftest import login, make_user
 
 from auth import _make_reset_token, _user_from_reset_token
 from extensions import db
-from models import User
+from models import ROLE_ADMIN, User
 
 
 def test_register_and_sign_in(app, client):
@@ -15,6 +15,57 @@ def test_register_and_sign_in(app, client):
     assert user.display_name == "Sam"
     assert user.check_password("correcthorse")
     assert user.password_hash != "correcthorse"
+
+
+def test_first_registered_account_becomes_admin(app, client):
+    """Bootstrap: without this a fresh deployment has no way to appoint one."""
+    resp = client.post("/register", data={"email": "founder@example.com",
+                                          "password": "correcthorse"},
+                       follow_redirects=True)
+    founder = User.query.filter_by(email="founder@example.com").one()
+    assert founder.role == ROLE_ADMIN
+    assert founder.is_admin and founder.is_moderator
+    assert "site admin" in resp.get_data(as_text=True)
+    # And the moderation queue is actually reachable, which is the point.
+    assert client.get("/moderate").status_code == 200
+
+
+def test_later_accounts_are_ordinary_users(app, client):
+    client.post("/register", data={"email": "founder@example.com",
+                                   "password": "correcthorse"}, follow_redirects=True)
+    client.get("/logout")
+    resp = client.post("/register", data={"email": "second@example.com",
+                                          "password": "correcthorse"},
+                       follow_redirects=True)
+
+    second = User.query.filter_by(email="second@example.com").one()
+    assert second.role == "user"
+    assert not second.is_moderator
+    assert "site admin" not in resp.get_data(as_text=True)
+    assert client.get("/moderate").status_code == 403
+
+
+def test_existing_users_block_the_admin_claim(app, client, user):
+    """No admin, but accounts already exist — a newcomer must not seize the role.
+
+    The `user` fixture puts an ordinary account in the table first. Keying the
+    claim on the lowest id (rather than "no admin exists") is what stops this.
+    """
+    client.post("/register", data={"email": "opportunist@example.com",
+                                   "password": "correcthorse"}, follow_redirects=True)
+    newcomer = User.query.filter_by(email="opportunist@example.com").one()
+    assert newcomer.role == "user"
+    assert User.query.filter_by(role=ROLE_ADMIN).count() == 0
+
+
+def test_admin_claim_is_inert_once_an_admin_exists(app, client, moderator):
+    """Even if the existing admin is not the lowest id, no second claim fires."""
+    moderator.role = ROLE_ADMIN
+    db.session.commit()
+
+    client.post("/register", data={"email": "later@example.com",
+                                   "password": "correcthorse"}, follow_redirects=True)
+    assert User.query.filter_by(role=ROLE_ADMIN).count() == 1
 
 
 def test_short_password_is_refused(app, client):

@@ -106,16 +106,24 @@ Migrations run from the start command, and again lazily on the first request —
 belt and braces, because a `render.yaml` start-command change only lands on a
 manual blueprint sync while code deploys land on every push.
 
-### Making yourself an admin
+### The first admin
 
-Roles are not self-service. After registering, promote yourself once from a
-Render shell:
+**The first account to register becomes the site admin**, because roles are
+only grantable from `/moderate` and reaching that needs an admin already. So
+register immediately after the first deploy — until you do, the role is
+unclaimed, and on a public URL whoever signs up first would get it.
+
+Once an admin exists the claim is permanently inert: no later registrant can
+take the role, and an existing population of ordinary accounts blocks it too
+(see `auth._claim_first_admin`). From then on `/moderate` lets an admin set
+anyone else's role.
+
+If you ever need to appoint one by hand — say the table was seeded before
+anyone registered — do it from a Render shell:
 
 ```bash
 python -c "from app import app; from extensions import db; from models import User; app.app_context().push(); u=User.query.filter_by(email='you@example.com').one(); u.role='admin'; db.session.commit(); print(u.email, u.role)"
 ```
-
-From then on `/moderate` lets an admin set anyone else's role.
 
 ---
 

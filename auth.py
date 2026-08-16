@@ -15,10 +15,11 @@ from flask import (
 )
 from flask_login import login_user, logout_user, login_required, current_user
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+from sqlalchemy import func
 
 from extensions import db
 from mailer import send_password_reset
-from models import User
+from models import ROLE_ADMIN, User
 
 auth_bp = Blueprint("auth", __name__)
 
@@ -33,6 +34,37 @@ def _safe_next(target: str) -> bool:
         return False
     parsed = urlparse(target)
     return not parsed.netloc and target.startswith("/") and not target.startswith("//")
+
+
+def _claim_first_admin(user: User) -> bool:
+    """Make the very first registered account the site admin.
+
+    Roles are only grantable from /moderate, which requires an admin — so a
+    fresh deployment has no way to appoint its first one without opening a
+    shell. The first account to register claims it instead.
+
+    ``user`` must already be flushed, because the decision is keyed on its id.
+    Two guards, both necessary:
+
+    * **No admin may already exist.** Once one does, this is inert forever, so
+      a later registrant can never seize the role.
+    * **This must be the lowest-numbered account.** Two registrations racing on
+      an empty database would both see "no admin yet"; only one of them can
+      hold the lowest id, so only one is promoted. It also means an existing
+      population of ordinary users blocks the claim, which is the case that
+      matters if the site somehow ran without an admin.
+
+    Wiping the users table lets the next registrant bootstrap again. That is
+    deliberate — it is the desired behaviour after a database reset, and it
+    cannot be reached by a user, since accounts can be suspended but never
+    deleted through the app.
+    """
+    if db.session.query(User.id).filter(User.role == ROLE_ADMIN).first() is not None:
+        return False
+    if db.session.query(func.min(User.id)).scalar() != user.id:
+        return False
+    user.role = ROLE_ADMIN
+    return True
 
 
 @auth_bp.route("/register", methods=["GET", "POST"])
@@ -53,9 +85,21 @@ def register():
             user = User(email=email, display_name=display_name or None)
             user.set_password(password)
             db.session.add(user)
+            db.session.flush()          # assign the id the admin claim keys on
+            promoted = _claim_first_admin(user)
             db.session.commit()
+
+            if promoted:
+                current_app.logger.warning(
+                    "Bootstrapped %s as the site admin (first registered account).",
+                    user.email)
+
             login_user(user)
-            flash("Welcome. You can post a lost or found pet now.", "success")
+            if promoted:
+                flash("Welcome — you're the first account here, so you're the site "
+                      "admin. Moderation tools are in the top bar.", "success")
+            else:
+                flash("Welcome. You can post a lost or found pet now.", "success")
             nxt = request.args.get("next")
             return redirect(nxt if _safe_next(nxt) else url_for("map_page"))
     return render_template("register.html")
