@@ -20,6 +20,15 @@
       · reported by {{ sighting.reporter.public_name }}
     </p>
   </div>
+  {# Without this a standalone sighting could only be removed from the
+     moderation queue — and nothing at all linked here from the map. #}
+  {% if sighting.can_remove(current_user) %}
+    <form method="post" action="{{ url_for('pets.delete_sighting', sighting_id=sighting.id) }}"
+          data-confirm="Remove this sighting? It will disappear from the map.">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn--danger" type="submit">Remove sighting</button>
+    </form>
+  {% endif %}
 </header>
 
 <div class="banner">

@@ -443,6 +443,32 @@ class Sighting(db.Model):
     def is_standalone(self) -> bool:
         return self.pet_id is None
 
+    @property
+    def is_visible(self) -> bool:
+        """Should the public see this at all?
+
+        A sighting attached to a removed report goes with it — hiding the
+        report but leaving its sightings addressable would defeat the removal.
+        A standalone sighting has no report to inherit from and stands on its
+        own ``is_removed``.
+        """
+        if self.is_removed:
+            return False
+        return self.pet is None or not self.pet.is_removed
+
+    def can_remove(self, user) -> bool:
+        """The person who logged it, the owner of the report, or a moderator.
+
+        One home for this, because ``pet_id`` is nullable: every call site that
+        reached for ``sighting.pet.user_id`` itself was one AttributeError
+        waiting for the first standalone sighting, and three of them were.
+        """
+        if not user or not getattr(user, "is_authenticated", False):
+            return False
+        if user.id == self.user_id or user.is_moderator:
+            return True
+        return self.pet is not None and user.id == self.pet.user_id
+
     def to_feature(self) -> dict:
         """GeoJSON Feature for the main map, shaped like Pet.to_feature.
 

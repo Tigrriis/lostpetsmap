@@ -83,8 +83,16 @@
       {% for s in sightings %}
         <tr class="{{ 'is-removed' if s.is_removed }}">
           <td>{{ s.id }}</td>
-          <td><a href="{{ url_for('pets.pet_detail', pet_id=s.pet_id) }}">#{{ s.pet_id }}</a></td>
-          <td class="cell-clip">{{ s.note or '—' }}</td>
+          {# pet_id is null for a standalone sighting; url_for would raise. #}
+          <td>
+            {% if s.pet_id %}
+              <a href="{{ url_for('pets.pet_detail', pet_id=s.pet_id) }}">#{{ s.pet_id }}</a>
+            {% else %}
+              <a href="{{ url_for('pets.sighting_detail', sighting_id=s.id) }}"
+                 class="muted">Standalone</a>
+            {% endif %}
+          </td>
+          <td class="cell-clip">{{ s.note or s.description or '—' }}</td>
           <td>{{ s.reporter.email }}</td>
           <td>{{ s.created_at | localdate }}</td>
           <td class="row-actions">

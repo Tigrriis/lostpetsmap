@@ -184,9 +184,7 @@
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button class="btn-link" type="submit">unlink</button>
                   </form>
-                {% elif s.sighting_id and current_user.is_authenticated
-                        and (current_user.id == s.user_id or current_user.id == pet.user_id
-                             or current_user.is_moderator) %}
+                {% elif s.sighting and s.sighting.can_remove(current_user) %}
                   <form method="post" action="{{ url_for('pets.delete_sighting', sighting_id=s.sighting_id) }}"
                         data-confirm="Remove this sighting?">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

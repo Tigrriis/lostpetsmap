@@ -536,7 +536,7 @@ class Observation:
 
     def __init__(self, *, seen_at, note, lat, lng, reporter, photo_url=None,
                  link_id=None, source_url=None, sighting_id=None, user_id=None,
-                 linked_label=None):
+                 linked_label=None, sighting=None):
         self.seen_at = seen_at
         self.note = note
         self.lat = lat
@@ -548,6 +548,10 @@ class Observation:
         self.source_url = source_url    # where it was originally posted
         self.sighting_id = sighting_id
         self.user_id = user_id
+        # The row itself, when there is one, so the template can ask
+        # Sighting.can_remove rather than re-deriving the rule a fourth time.
+        # None for a linked *found report*, which has no sighting behind it.
+        self.sighting = sighting
 
     @property
     def has_photo(self) -> bool:
@@ -563,7 +567,7 @@ def _observations(pet: Pet) -> list[Observation]:
             seen_at=s.seen_at, note=s.note, lat=s.lat, lng=s.lng,
             reporter=s.reporter.public_name if s.reporter else "",
             photo_url=url_for("pets.sighting_photo", sighting_id=s.id) if s.has_photo else None,
-            sighting_id=s.id, user_id=s.user_id))
+            sighting_id=s.id, user_id=s.user_id, sighting=s))
 
     for link in pet.links:
         # Moderators can link too, so the label reports who actually did it
@@ -581,7 +585,7 @@ def _observations(pet: Pet) -> list[Observation]:
                 photo_url=(url_for("pets.sighting_photo", sighting_id=s.id)
                            if s.has_photo else None),
                 link_id=link.id, linked_label=linked_label,
-                sighting_id=s.id, user_id=s.user_id,
+                sighting_id=s.id, user_id=s.user_id, sighting=s,
                 source_url=(url_for("pets.pet_detail", pet_id=s.pet_id)
                             if s.pet_id else None)))
         else:
@@ -966,9 +970,7 @@ def delete_photo(pet_id: int, photo_id: int):
 @pets_bp.route("/sightings/<int:sighting_id>/photo")
 def sighting_photo(sighting_id: int):
     sighting = db.session.get(Sighting, sighting_id)
-    if sighting is None or sighting.is_removed or not sighting.photo:
-        abort(404)
-    if sighting.pet.is_removed:
+    if sighting is None or not sighting.photo or not sighting.is_visible:
         abort(404)
     return _image_response(sighting.photo, sighting.photo_mimetype or "image/jpeg")
 
@@ -1034,17 +1036,16 @@ def delete_sighting(sighting_id: int):
     sighting = db.session.get(Sighting, sighting_id)
     if sighting is None:
         abort(404)
-    # The person who logged it, the owner of the report, or a moderator.
-    allowed = (current_user.id == sighting.user_id
-               or current_user.id == sighting.pet.user_id
-               or current_user.is_moderator)
-    if not allowed:
+    if not sighting.can_remove(current_user):
         abort(403)
     sighting.is_removed = True
     sighting.removed_at = now_utc()
     sighting.removed_by_id = current_user.id
     db.session.commit()
     flash("Sighting removed.", "info")
+    # A standalone sighting has no report to go back to, so go to the map.
+    if sighting.pet_id is None:
+        return redirect(url_for("map_page"))
     return redirect(url_for("pets.pet_detail", pet_id=sighting.pet_id))
 
 
