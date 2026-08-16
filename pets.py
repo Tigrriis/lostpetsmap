@@ -43,7 +43,8 @@ from mailer import send_owner_message, send_sighting_alert
 from models import (
     MICROCHIP, REPORT_FOUND, REPORT_MISSING, REPORT_TYPES, SEXES, SIZES,
     SPECIES, STATUS_ACTIVE, STATUS_CLOSED, STATUS_REUNITED, STATUSES,
-    TRACK_SOURCES, ContactMessage, Pet, PetPhoto, Sighting, recent_count,
+    TRACK_SOURCES, ContactMessage, Pet, PetPhoto, Sighting,
+    photos_uploaded_since, recent_count,
 )
 from services import geocode as geocode_service
 from services import images
@@ -225,7 +226,23 @@ def api_geocode():
     anonymous visitor needs it. Never returns an HTTP error for a failed lookup
     — the pin is still usable, so the client shows a hint instead.
     """
-    result = geocode_service.geocode_detailed(request.args.get("address", ""))
+    address = request.args.get("address", "")
+
+    # Serve from the cache before spending anything. Only a lookup that will
+    # really reach Google consumes budget — see config.MAX_GEOCODES_PER_HOUR.
+    result = geocode_service.lookup_cached(address)
+    if result is None:
+        limit = current_app.config["MAX_GEOCODES_PER_HOUR"]
+        if not current_user.take_geocode_slot(limit):
+            db.session.commit()
+            return jsonify({
+                "ok": False, "status": "rate_limited",
+                "message": (f"That's {limit} address lookups this hour. Drop the pin "
+                            "on the map instead, or try again shortly."),
+            }), 429
+        db.session.commit()
+        result = geocode_service.geocode_detailed(address)
+
     if result.coords:
         lat, lng = result.coords
         inside = within_bounds(lat, lng, current_app.config["TAS_BOUNDS"])
@@ -248,11 +265,18 @@ def api_geocode():
 def _apply_form(pet: Pet, form, files) -> list[str]:
     """Populate ``pet`` from submitted form data. Returns a list of errors.
 
+    Returns ``(errors, warnings)``. Only errors block the save; warnings are
+    shown and moved past. That split used to be inferred by matching on message
+    text — `"not a readable image" not in e` — which silently made every new
+    photo message blocking the moment one was added, throwing away a report
+    because an image was too big.
+
     Shared by create and edit so the two can never drift apart in what they
-    validate. The caller commits only when the returned list is empty.
+    validate.
     """
     cfg = current_app.config
     errors: list[str] = []
+    warnings: list[str] = []
 
     report_type = (form.get("report_type") or "").lower()
     if report_type not in REPORT_TYPES:
@@ -309,25 +333,36 @@ def _apply_form(pet: Pet, form, files) -> list[str]:
     if report_type == REPORT_FOUND and not pet.description and not pet.colour:
         errors.append("Describe the animal you found — colour at the very least.")
 
-    # Photos. Errors here are appended but do not block the report: a lost pet
-    # posted without a photo still beats no post at all.
+    # Photos never block the report. A lost pet posted without an image still
+    # beats no post at all, so everything below goes in `warnings` — shown to
+    # the reporter, but the save proceeds.
     existing = len(pet.photos)
     room = cfg["MAX_PHOTOS_PER_PET"] - existing
     uploads = [f for f in files.getlist("photos") if f and f.filename]
     if uploads and room <= 0:
-        errors.append(f"Already at the {cfg['MAX_PHOTOS_PER_PET']}-photo limit — "
-                      "delete one before adding another.")
+        warnings.append(f"Already at the {cfg['MAX_PHOTOS_PER_PET']}-photo limit — "
+                        "delete one before adding another.")
+
+    # Photos are the only bulky thing in this database, so one account's daily
+    # intake is capped across reports and sightings together.
+    daily_cap = cfg["MAX_PHOTOS_PER_DAY"]
+    daily_room = max(daily_cap - photos_uploaded_since(current_user.id), 0)
+    if uploads and daily_room == 0:
+        warnings.append(f"That's {daily_cap} photos today, which is the daily limit. "
+                        "The report is saved — add photos to it tomorrow.")
+    room = min(room, daily_room)
+
     for index, upload in enumerate(uploads[:max(room, 0)]):
         processed = images.process_photo(upload.read())
         if processed is None:
-            errors.append(f"{upload.filename}: not a readable image.")
+            warnings.append(f"{upload.filename}: not a readable image.")
             continue
         pet.photos.append(PetPhoto(
             data=processed.data, thumb=processed.thumb,
             mimetype=processed.mimetype, sort_order=existing + index,
         ))
 
-    return errors
+    return errors, warnings
 
 
 @pets_bp.route("/pets/new", methods=["GET", "POST"])
@@ -340,13 +375,10 @@ def new_pet():
 
     pet = Pet(user_id=current_user.id)
     if request.method == "POST":
-        errors = _apply_form(pet, request.form, request.files)
-        # A photo problem alone should not throw away a filled-in form, but it
-        # also should not be silently swallowed — flash it and carry on.
-        blocking = [e for e in errors if "not a readable image" not in e]
-        for message in errors:
+        errors, warnings = _apply_form(pet, request.form, request.files)
+        for message in errors + warnings:
             flash(message, "error")
-        if not blocking:
+        if not errors:
             db.session.add(pet)
             db.session.commit()
             flash("Report posted. Share the link — that's what finds pets.", "success")
@@ -365,11 +397,10 @@ def edit_pet(pet_id: int):
     _require_owner(pet)
 
     if request.method == "POST":
-        errors = _apply_form(pet, request.form, request.files)
-        blocking = [e for e in errors if "not a readable image" not in e]
-        for message in errors:
+        errors, warnings = _apply_form(pet, request.form, request.files)
+        for message in errors + warnings:
             flash(message, "error")
-        if not blocking:
+        if not errors:
             db.session.commit()
             flash("Report updated.", "success")
             return redirect(url_for("pets.pet_detail", pet_id=pet.id))
@@ -533,11 +564,17 @@ def add_sighting(pet_id: int):
 
     upload = request.files.get("photo")
     if upload and upload.filename:
-        processed = images.process_single(upload.read())
-        if processed is None:
-            flash("That photo couldn't be read — the sighting was saved without it.", "error")
+        # Shares the daily photo budget with report photos — same database.
+        if photos_uploaded_since(current_user.id) >= cfg["MAX_PHOTOS_PER_DAY"]:
+            flash(f"That's {cfg['MAX_PHOTOS_PER_DAY']} photos today, the daily limit. "
+                  "The sighting was saved without the photo.", "error")
         else:
-            sighting.photo, sighting.photo_mimetype = processed
+            processed = images.process_single(upload.read())
+            if processed is None:
+                flash("That photo couldn't be read — the sighting was saved without it.",
+                      "error")
+            else:
+                sighting.photo, sighting.photo_mimetype = processed
 
     db.session.add(sighting)
     db.session.commit()

@@ -29,22 +29,38 @@
   --status-coverage: var(--ok);
 }
 
-/* ------------------------------------------------ FILLED-CONTROL FG ------ */
-/* The pack hard-codes #fff as the foreground of every filled control, and its
-   dark palette *lightens* --accent and --danger for legibility as text. White
-   on those lightened fills lands at 3.49:1 for primary buttons and 2.87:1 for
-   danger ones — below the 4.5:1 floor, on every page. Filled controls take a
-   dark foreground in dark mode instead, which is how tinted danger/accent
-   fills are normally handled on dark backgrounds.
+/* ------------------------------------------------ FILLED CONTROLS -------- */
+/* The pack hard-codes #fff on every filled control, and its dark palette
+   *lightens* --accent and --danger. That lightening is right for those tokens
+   as text — a tag, a link, an error message on a dark page — and wrong beneath
+   a white label: white lands at 3.49:1 on a dark-mode primary button and
+   2.87:1 on a danger one.
 
-   Both this and the --danger nudge below are pack bugs affecting any app on
-   this pack; they belong upstream in Tigrriis/style-tests, and these rules can
-   go the day they land. */
-:root { --on-fill: #fff; }
-[data-theme="dark"] { --on-fill: var(--paper); }
+   Fixed by pinning the *fill*, not the text. Filled controls use their own
+   token, dark enough for white in either theme, so a button looks the same in
+   both — white on indigo, the way a primary button is expected to look.
 
-[data-theme="dark"] .btn--primary,
-[data-theme="dark"] .btn--danger { --_fg: var(--on-fill); }
+   The first attempt did the opposite: it kept the pack's lightened fill and
+   flipped the label dark. That passes contrast (5.29:1) and still reads as
+   broken, because dark text on a pale button looks unstyled rather than
+   deliberate. Passing a ratio is not the same as looking right. */
+:root {
+  --accent-fill: var(--accent);      /* #5b5bd6 — white on it is 5.37:1 */
+  --danger-fill: var(--danger);      /* #c63a4f — white on it is 5.10:1 */
+}
+[data-theme="dark"] {
+  /* The light values, deliberately: dark mode lightens these tokens for text,
+     which is exactly what makes them fail as a fill. */
+  --accent-fill: #5b5bd6;
+  --danger-fill: #c63a4f;
+}
+
+.btn--primary { --_bg: var(--accent-fill); --_fg: #fff; }
+.btn--danger  { --_bg: var(--danger-fill); --_fg: #fff; }
+@media (hover: hover) {
+  .btn--primary:hover { --_bg: var(--accent-hi); color: #fff; }
+  .btn--danger:hover  { background: var(--danger-fill); color: #fff; }
+}
 
 /* Light --danger (#d2455a) is fractionally too light both for white text
    (4.43:1) and as text on its own --danger-soft fill (3.94:1, the "Missing"
@@ -240,12 +256,12 @@ body { background: var(--paper); color: var(--ink-800); }
 }
 .chip:hover { border-color: var(--accent); color: var(--accent-ink); }
 .chip.is-on {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--on-fill);
+  background: var(--accent-fill);
+  border-color: var(--accent-fill);
+  color: #fff;
 }
-.chip--missing.is-on { background: var(--danger); border-color: var(--danger); }
-.chip--found.is-on   { background: var(--accent); border-color: var(--accent); }
+.chip--missing.is-on { background: var(--danger-fill); border-color: var(--danger-fill); }
+.chip--found.is-on   { background: var(--accent-fill); border-color: var(--accent-fill); }
 
 .map-legend {
   display: flex;
@@ -441,8 +457,8 @@ body { background: var(--paper); color: var(--ink-800); }
 }
 .leaflet-bar a:hover { background: var(--panel-2); }
 .marker-cluster div {
-  background: var(--accent);
-  color: var(--on-fill);       /* dark text in dark mode; the accent lightens there */
+  background: var(--accent-fill);
+  color: #fff;                 /* --accent-fill stays dark enough for white in both themes */
   font-family: var(--font-ui);
   font-weight: 700;
 }

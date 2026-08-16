@@ -56,6 +56,22 @@ def _locality_from(result: dict) -> Optional[str]:
     return None
 
 
+def lookup_cached(address: str) -> Optional[GeocodeResult]:
+    """Answer from the cache alone, or None if this would need a Google call.
+
+    Lets a caller charge its rate limit only for lookups that actually cost
+    money. Re-checking an address someone already resolved should never eat
+    into anyone's budget.
+    """
+    key = _normalize(address or "")
+    if not key:
+        return None
+    row = db.session.query(GeocodeCache).filter_by(normalized_address=key).first()
+    if row is None:
+        return None
+    return GeocodeResult((row.lat, row.lng), OK, row.formatted)
+
+
 def geocode_detailed(address: str) -> GeocodeResult:
     """Geocode ``address``, returning coordinates and a status code.
 

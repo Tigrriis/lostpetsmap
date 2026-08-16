@@ -112,6 +112,19 @@ class Config:
     MAX_ACTIVE_PETS_PER_USER = 20      # anti-spam, generous for a real user
     MAX_CONTACTS_PER_HOUR = 10         # messages one account may relay
     MAX_SIGHTINGS_PER_HOUR = 20
+
+    # Photos are the only thing in this database with real bulk: about 405 KB
+    # each once resized, against a 1 GB tier. Twenty a day is far more than a
+    # genuine reporter needs — four per report, five reports — while capping
+    # what one account can add to storage before anyone notices. Counted across
+    # report photos and sighting photos together.
+    MAX_PHOTOS_PER_DAY = 20
+
+    # Geocoding is the one call that costs money per request rather than per
+    # gigabyte, so it gets its own budget. Only *uncached* lookups count: a
+    # repeat of an address already in geocode_cache never reaches Google and so
+    # never spends anything. Filling in one report takes two or three.
+    MAX_GEOCODES_PER_HOUR = 30
     MAP_RESULT_LIMIT = 2000            # markers returned by one /api/pets call
     DEFAULT_ACTIVE_DAYS = 180          # reports older than this are hidden by default
 

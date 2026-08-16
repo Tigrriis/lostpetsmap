@@ -142,10 +142,33 @@ class User(UserMixin, db.Model):
     # does not, and production is Postgres.
     is_banned = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
 
+    # Fixed-window counter for the one metered API this app calls. Two columns
+    # rather than a log table on purpose: a row per lookup would grow without
+    # bound and need pruning, to answer a question that only ever concerns the
+    # last hour.
+    geocode_count = db.Column(db.Integer, nullable=False, default=0, server_default="0")
+    geocode_window_start = db.Column(db.DateTime(timezone=True), nullable=True)
+
     created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
 
     pets = db.relationship("Pet", backref="reporter", lazy="dynamic",
                            foreign_keys="Pet.user_id")
+
+    def take_geocode_slot(self, limit: int, window_hours: int = 1) -> bool:
+        """Claim one metered lookup, or return False if the budget is spent.
+
+        The caller commits. Only call this for lookups that will actually reach
+        Google — a cache hit costs nothing and must not consume budget.
+        """
+        now = _utcnow()
+        start = _as_aware(self.geocode_window_start)
+        if start is None or (now - start) >= timedelta(hours=window_hours):
+            self.geocode_window_start = now
+            self.geocode_count = 0
+        if self.geocode_count >= limit:
+            return False
+        self.geocode_count += 1
+        return True
 
     def set_password(self, password: str) -> None:
         self.password_hash = generate_password_hash(password)
@@ -513,6 +536,28 @@ class GeocodeCache(db.Model):
     lng = db.Column(db.Float, nullable=False)
     formatted = db.Column(db.String(500), nullable=True)
     created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
+
+
+def photos_uploaded_since(user_id: int, hours: int = 24) -> int:
+    """How many photos this account has stored recently, of any kind.
+
+    Report photos and sighting photos share one budget, because they share one
+    database. PetPhoto carries no user_id — it belongs to a pet — so this joins
+    through Pet rather than denormalising an owner onto every image row.
+    """
+    since = _utcnow() - timedelta(hours=hours)
+
+    on_reports = (db.session.query(PetPhoto.id)
+                  .join(Pet, PetPhoto.pet_id == Pet.id)
+                  .filter(Pet.user_id == user_id)
+                  .filter(PetPhoto.created_at >= since)
+                  .count())
+    on_sightings = (db.session.query(Sighting.id)
+                    .filter(Sighting.user_id == user_id)
+                    .filter(Sighting.photo.isnot(None))
+                    .filter(Sighting.created_at >= since)
+                    .count())
+    return on_reports + on_sightings
 
 
 def recent_count(model, author_column, user_id: int, hours: int = 1) -> int:
