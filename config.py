@@ -37,6 +37,12 @@ class Config:
     SESSION_COOKIE_SAMESITE = "Lax"
     SESSION_COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "0") == "1"
 
+    # A year, which is only safe because every static URL carries a content
+    # hash (app._register_asset_versioning): a changed file is a different URL,
+    # so nothing has to expire for a fix to reach anyone. Without the hashing
+    # this would be a trap — a CSS bug frozen in caches for twelve months.
+    SEND_FILE_MAX_AGE_DEFAULT = 31_536_000
+
     # ── Geocoding ──────────────────────────────────────────────────────────
     # Optional. The map pin is the source of truth for a pet's location, so the
     # app is fully usable with no key at all — geocoding only powers the

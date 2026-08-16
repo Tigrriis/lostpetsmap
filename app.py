@@ -15,6 +15,7 @@ Module-level ``app`` rather than a factory, matching the rest of the Arete
 Flask services, so ``gunicorn app:app`` in render.yaml works unchanged. The
 tests build their own app via ``create_app()`` for isolation.
 """
+import hashlib
 import os
 import threading
 
@@ -53,10 +54,57 @@ def create_app(overrides: dict | None = None) -> Flask:
     app.register_blueprint(tracks_bp)
     app.register_blueprint(moderation_bp)
 
+    _register_asset_versioning(app)
     _register_template_helpers(app)
     _register_routes(app)
     _register_error_handlers(app)
     return app
+
+
+# Content hash per static file, computed once per process. Keyed by filename;
+# the files are a few tens of kilobytes, so hashing them on first use costs
+# nothing measurable and saves stat-ing them on every request afterwards.
+_ASSET_VERSIONS: dict[str, str] = {}
+
+
+def _asset_version(app: Flask, filename: str) -> str | None:
+    """Short content hash for a static file, or None if it cannot be read.
+
+    Content rather than mtime: a redeploy rewrites every mtime, which would
+    expire the whole cache each time even for files that never changed.
+    """
+    if not app.debug and filename in _ASSET_VERSIONS:
+        return _ASSET_VERSIONS[filename]
+    try:
+        with open(os.path.join(app.static_folder, filename), "rb") as handle:
+            digest = hashlib.sha256(handle.read()).hexdigest()[:8]
+    except OSError:
+        # A missing asset is already a broken page; it should not also be a 500.
+        return None
+    _ASSET_VERSIONS[filename] = digest
+    return digest
+
+
+def _register_asset_versioning(app: Flask) -> None:
+    """Append ?v=<hash> to every static URL, so a changed file gets a new one.
+
+    Hooked into url_for rather than written into each template: every existing
+    reference is covered, and so is every one added later.
+
+    This is what makes the long cache lifetime below safe. Without it, a CSS fix
+    is invisible to returning visitors until their copy expires — which behind a
+    CDN can be hours after the deploy went out.
+    """
+    @app.url_defaults
+    def add_version(endpoint, values):
+        if endpoint != "static":
+            return
+        filename = values.get("filename")
+        if not filename:
+            return
+        version = _asset_version(app, filename)
+        if version:
+            values["v"] = version
 
 
 def _register_template_helpers(app: Flask) -> None:
