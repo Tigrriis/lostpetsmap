@@ -624,7 +624,15 @@ def _match_candidates(pet: Pet, limit: int = 25) -> dict:
 
     sightings = (Sighting.query
                  .filter(Sighting.is_removed.is_(False))
-                 .filter(Sighting.pet_id.isnot(pet.id) | Sighting.pet_id.is_(None))
+                 # "Belongs to some other pet, or to none at all." Must be
+                 # written as != plus an explicit IS NULL, not isnot(pet.id):
+                 # SQLAlchemy renders that as `pet_id IS NOT 2`, which SQLite
+                 # accepts and Postgres rejects outright as a syntax error. The
+                 # IS NULL arm is still needed because `pet_id != 2` is UNKNOWN,
+                 # not true, for a standalone sighting — which is the only kind
+                 # this page is really here to surface.
+                 .filter(or_(Sighting.pet_id != pet.id,
+                             Sighting.pet_id.is_(None)))
                  .filter(Sighting.seen_at >= since)
                  .filter(Sighting.lat.between(box.south, box.north))
                  .filter(Sighting.lng.between(box.west, box.east))

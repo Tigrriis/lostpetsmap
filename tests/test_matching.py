@@ -114,6 +114,42 @@ def test_the_pets_own_sightings_are_not_offered(app, client, user):
         assert own.id not in {s.id for s in _match_candidates(pet)["sightings"]}
 
 
+def test_a_sighting_on_another_report_is_offered(app, client, user, other_user):
+    """The other arm of the same filter.
+
+    "Not mine, or belonging to nobody" has to be spelled `!= id OR IS NULL`,
+    because `!= id` alone is UNKNOWN against a null pet_id and drops every
+    standalone sighting. This covers the half that a bare `IS NULL` would lose.
+    """
+    pet = make_pet(user, species="cat")
+    theirs = make_pet(other_user, species="cat", name="Smudge")
+    on_theirs = Sighting(pet_id=theirs.id, user_id=other_user.id,
+                         lat=pet.lat, lng=pet.lng, seen_at=now_utc())
+    db.session.add(on_theirs)
+    db.session.commit()
+
+    from pets import _match_candidates
+    with app.test_request_context():
+        offered = {s.id for s in _match_candidates(pet)["sightings"]}
+    assert on_theirs.id in offered
+
+
+def test_the_matches_page_renders_with_a_mix_of_sightings(app, client, user,
+                                                          other_user):
+    """End to end, because the filter that broke this only fails in the route."""
+    pet = make_pet(user, species="cat")
+    standalone(other_user, species="cat")
+    theirs = make_pet(other_user, species="cat", name="Smudge")
+    db.session.add(Sighting(pet_id=theirs.id, user_id=other_user.id,
+                            lat=pet.lat, lng=pet.lng, seen_at=now_utc()))
+    db.session.add(Sighting(pet_id=pet.id, user_id=user.id, lat=pet.lat,
+                            lng=pet.lng, seen_at=now_utc()))
+    db.session.commit()
+
+    login(client)
+    assert client.get(f"/pets/{pet.id}/matches").status_code == 200
+
+
 def test_matches_are_owner_only(app, client, user, other_user):
     pet = make_pet(other_user)
     login(client)
