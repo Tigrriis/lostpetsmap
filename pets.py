@@ -100,6 +100,7 @@ def _form_choices() -> dict:
         "bounds": current_app.config["TAS_BOUNDS"],
         "centre": current_app.config["TAS_CENTRE"],
         "max_photos": current_app.config["MAX_PHOTOS_PER_PET"],
+        "blur_radius_m": int(current_app.config["BLUR_RADIUS_M"]),
     }
 
 
@@ -212,7 +213,6 @@ def api_pets():
     rows = rows[:limit]
 
     if near and radius_km and radius_km > 0:
-        from services.geo import haversine_m
         radius_m = radius_km * 1000.0
         rows = [p for p in rows
                 if haversine_m(near[0], near[1], p.public_lat, p.public_lng) <= radius_m]
@@ -486,6 +486,14 @@ def delete_pet(pet_id: int):
     pet = _get_pet_or_404(pet_id, include_removed=True)
     _require_owner(pet)
 
+    if pet.is_removed:
+        # Already gone. Re-removing would overwrite removed_by/removed_at and
+        # erase the record of who actually took it down — which, when a
+        # moderator did, is the one fact an appeal needs.
+        flash("That report is already removed.", "info")
+        return redirect(url_for("pets.my_pets") if current_user.id == pet.user_id
+                        else url_for("moderation.queue", view="removed"))
+
     pet.is_removed = True
     pet.removed_at = now_utc()
     pet.removed_by_id = current_user.id
@@ -519,6 +527,7 @@ def pet_detail(pet_id: int):
         track_sources=TRACK_SOURCES,
         cell_m=current_app.config["COVERAGE_CELL_M"],
         trim_m=int(current_app.config["TRACK_TRIM_M"]),
+        blur_radius_m=int(current_app.config["BLUR_RADIUS_M"]),
     )
 
 
@@ -577,7 +586,10 @@ def _observations(pet: Pet) -> list[Observation]:
                         else "Linked by a moderator")
         if link.sighting_id:
             s = link.sighting
-            if s is None or s.is_removed:
+            # is_visible, not is_removed: a sighting logged on a report that a
+            # moderator has since removed must not resurface here through a
+            # link, with a "where it was posted" pointing at a 404.
+            if s is None or not s.is_visible:
                 continue
             items.append(Observation(
                 seen_at=s.seen_at, note=s.note, lat=s.lat, lng=s.lng,
@@ -641,6 +653,7 @@ def _match_candidates(pet: Pet, limit: int = 25) -> dict:
     near_sightings = [
         s for s in sightings
         if s.pet_id != pet.id
+        and s.is_visible                  # not on a report that was removed
         and s.id not in already_sightings
         and (s.species in (None, pet.species))
         and haversine_m(pet.lat, pet.lng, s.lat, s.lng) <= radius_m
@@ -878,7 +891,7 @@ def link_observation(pet_id: int):
 
     if sighting_id:
         target = db.session.get(Sighting, sighting_id)
-        if target is None or target.is_removed:
+        if target is None or not target.is_visible:
             abort(404)
         if target.pet_id == pet.id:
             flash("That sighting is already on this report.", "info")
@@ -1031,10 +1044,13 @@ def add_sighting(pet_id: int):
         send_sighting_alert(
             pet.reporter.email, pet.label,
             url_for("pets.pet_detail", pet_id=pet.id, _external=True),
-            note or "", request.form.get("seen_at", ""),
+            # The parsed, formatted local time — not the raw form string, which
+            # arrives as "2026-09-12T14:30" and read like a log line in the email.
+            note or "", format_local(seen),
         )
-
-    flash("Sighting added — the person who posted this has been emailed.", "success")
+        flash("Sighting added — the person who posted this has been emailed.", "success")
+    else:
+        flash("Sighting added to your report.", "success")
     return redirect(url_for("pets.pet_detail", pet_id=pet.id))
 
 

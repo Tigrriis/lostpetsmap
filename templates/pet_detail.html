@@ -138,7 +138,7 @@
       <div id="detail-map" class="detail-map" role="application" aria-label="Location map"></div>
       {% if pet.blur_location and not exact %}
         <p class="field-hint">
-          Shown within a few hundred metres of the real spot, to protect the address.
+          Shown within about {{ blur_radius_m }} m of the real spot, to protect the address.
           Log a sighting or message the owner for specifics.
         </p>
       {% endif %}
@@ -421,6 +421,7 @@
       ],
       petId: {{ pet.id }},
       trimM: {{ trim_m|int }},
+      blurRadiusM: {{ blur_radius_m|int }},
       canLogSearch: {{ (current_user.is_authenticated and pet.status == 'active'
                         and not pet.is_removed) | tojson }},
       urls: {

@@ -75,8 +75,11 @@
       <ul class="report-list">
         {% for s in sightings %}
           <li class="report-card">
+            {# A standalone sighting has its own page now; this was "#" from
+               before that page existed, a dead link on the one card an owner
+               most wants to open. #}
             <a class="report-card__photo"
-               href="{% if s.pet_id %}{{ url_for('pets.pet_detail', pet_id=s.pet_id) }}{% else %}#{% endif %}">
+               href="{% if s.pet_id %}{{ url_for('pets.pet_detail', pet_id=s.pet_id) }}{% else %}{{ url_for('pets.sighting_detail', sighting_id=s.id) }}{% endif %}">
               {% if s.has_photo %}
                 <img src="{{ url_for('pets.sighting_photo', sighting_id=s.id) }}" alt="">
               {% else %}
@@ -84,9 +87,10 @@
               {% endif %}
             </a>
             <div class="report-card__body">
-              <strong>
+              <a class="report-card__title"
+                 href="{% if s.pet_id %}{{ url_for('pets.pet_detail', pet_id=s.pet_id) }}{% else %}{{ url_for('pets.sighting_detail', sighting_id=s.id) }}{% endif %}">
                 {% if s.pet_id %}Sighting on another report{% else %}Unidentified sighting{% endif %}
-              </strong>
+              </a>
               <p class="report-card__meta">
                 {{ s.seen_at | localtime }} ({{ s.seen_at | ago }})
                 {%- if s.description %} · {{ s.description }}{% endif %}

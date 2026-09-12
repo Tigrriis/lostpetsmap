@@ -85,10 +85,21 @@
       body: JSON.stringify(body || {})
     }).then(function (r) {
       return r.json().then(function (data) {
-        if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+        if (!r.ok) {
+          var err = new Error(data.error || ("HTTP " + r.status));
+          err.status = r.status;          // callers tell "gone" from "offline"
+          throw err;
+        }
         return data;
       });
     });
+  }
+
+  // The server no longer has a live track under this id — it was finished
+  // (409) or discarded (404), usually from another tab or a lost response.
+  // Recording into it would go nowhere, so stop and forget the local copy.
+  function trackGone(err) {
+    return err && (err.status === 409 || err.status === 404);
   }
 
   function flush() {
@@ -103,7 +114,16 @@
         save();
         if (data.full) status("Reached the maximum length for one search — finish up.");
       })
-      .catch(function () {
+      .catch(function (err) {
+        if (trackGone(err)) {
+          // This used to read as "Offline — still recording" forever: the
+          // stored track had already been finished, every flush hit 409, and
+          // the only way out was Discard — which deleted the published search.
+          resetLocal();
+          window.alert("That search was already finished, so this page has stopped " +
+                       "recording. Reload to see it on the map.");
+          return;
+        }
         status("Offline — still recording, will upload when you're back.", true);
       });
   }
@@ -127,6 +147,23 @@
   function showLive(on) {
     el.idle.hidden = on;
     el.live.hidden = !on;
+  }
+
+  // Forget the search on this device: stop the GPS, drop the stored copy,
+  // clear the live line. The server-side track is untouched.
+  function resetLocal() {
+    stopWatching();
+    clearStored();
+    state = null; lastFix = null;
+    if (liveLine && window.PM_detailMap) {
+      window.PM_detailMap.removeLayer(liveLine); liveLine = null;
+    }
+    showLive(false);
+    // Re-arm the controls. Finish is disabled while its request is in flight,
+    // and the paths that land here without a reload would otherwise leave it
+    // dead for the next search started on this page.
+    el.finish.disabled = false;
+    el.start.disabled = false;
   }
 
   // ---------- Wake lock ----------
@@ -266,19 +303,20 @@
     var body = { notes: el.notes ? el.notes.value : "", points: state.buffer };
     post("/tracks/" + state.trackId + "/finish", body)
       .then(function (data) {
-        clearStored();
-        state = null; lastFix = null;
-        if (liveLine && window.PM_detailMap) {
-          window.PM_detailMap.removeLayer(liveLine); liveLine = null;
-        }
-        showLive(false);
+        resetLocal();
         // Tell them *before* reloading. The other order looks harmless and is
         // not: the alert is discarded as the page unloads, so a search that
         // published nothing did so silently.
-        if (!data.published) window.alert(data.message);
+        if (!data.published) window.alert(data.message || "That search wasn't published.");
         window.location.reload();          // simplest way to redraw coverage
       })
       .catch(function (err) {
+        if (trackGone(err)) {
+          resetLocal();
+          window.alert("That search no longer exists on the server, so there is " +
+                       "nothing to publish.");
+          return;
+        }
         el.finish.disabled = false;
         beginWatching();                    // keep going rather than lose it
         status("Couldn't save: " + err.message + ". Still recording.", true);
@@ -288,14 +326,9 @@
   el.abandon.addEventListener("click", function () {
     if (!state) return;
     if (!window.confirm("Discard this search? Nothing will be saved.")) return;
-    stopWatching();
-    post("/tracks/" + state.trackId + "/delete", {}).catch(function () {});
-    clearStored();
-    state = null; lastFix = null;
-    if (liveLine && window.PM_detailMap) {
-      window.PM_detailMap.removeLayer(liveLine); liveLine = null;
-    }
-    showLive(false);
+    var id = state.trackId;
+    resetLocal();
+    post("/tracks/" + id + "/delete", {}).catch(function () {});
   });
 
   // ---------- Resume ----------

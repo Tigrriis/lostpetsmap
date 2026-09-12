@@ -315,6 +315,12 @@ def verify_email(token: str):
 
     # Confirming from the link is proof of address, so it is also a reasonable
     # moment to sign them in — it saves a step on the phone they opened it on.
+    # Not for a suspended account, though: /login refuses those, and this link
+    # must not be a side door around that refusal.
+    if user.is_banned:
+        flash("Email confirmed, but this account has been suspended. "
+              "Contact the site admin.", "error")
+        return redirect(url_for("auth.login"))
     if not current_user.is_authenticated:
         login_user(user)
     flash("Email confirmed. You can message people and log sightings now.", "success")

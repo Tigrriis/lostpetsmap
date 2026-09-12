@@ -261,7 +261,16 @@ def append_points(track_id: int):
 def finish_track(track_id: int):
     track = _own_track_or_404(track_id)
     if track.finished_at is not None:
-        return jsonify({"ok": True, "track": _track_summary(track)})
+        # Same shape as the normal reply. The client branches on `published`,
+        # and a reply without it read as "not published" with no message —
+        # which surfaced as alert("undefined") when a finish was retried after
+        # the first response was lost on the way back.
+        published = track.cell_count > 0
+        return jsonify({
+            "ok": True, "published": published, "track": _track_summary(track),
+            "message": ("That search was already finished." if published else
+                        "That search was too short to map — nothing was published."),
+        })
 
     body = request.get_json(silent=True) or {}
     notes = (body.get("notes") or "").strip()[:500] or None

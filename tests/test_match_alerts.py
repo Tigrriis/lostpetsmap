@@ -13,7 +13,7 @@ from conftest import login, make_pet, make_user
 import mailer
 from extensions import db
 from models import Pet, Sighting
-from services.localtime import now_utc
+from services.localtime import now_utc, to_input_value
 
 
 @pytest.fixture
@@ -41,7 +41,12 @@ def verified(user):
 
 
 def post_sighting(client, lat=-42.8615, lng=147.3045, species="cat", **extra):
-    data = {"species": species, "seen_at": "2026-08-16T09:00",
+    # Relative, not a literal date: the pet in missing_cat() went missing two
+    # days ago, and a sighting must post-date that or the alert rightly skips
+    # it. A hard-coded August date turned every test here red once the
+    # calendar passed it.
+    seen = to_input_value(now_utc() - timedelta(hours=1))
+    data = {"species": species, "seen_at": seen,
             "lat": str(lat), "lng": str(lng), "description": "Black and white cat"}
     data.update(extra)
     return client.post("/sightings/new", data=data, follow_redirects=True)

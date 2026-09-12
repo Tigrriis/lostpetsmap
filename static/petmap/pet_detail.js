@@ -34,8 +34,12 @@
     if (CFG.approximate) {
       // Draw the uncertainty rather than a false point. A bare marker on a
       // blurred coordinate reads as precise, which is exactly the wrong message.
+      // The configured blur radius, not a literal. This was 400 while the
+      // server blurred to 100, so the page drew four times the uncertainty
+      // the map actually carried and disagreed with the copy beside it.
       L.circle([CFG.lat, CFG.lng], {
-        radius: 400, color: colour, weight: 1.5, fillOpacity: 0.12, dashArray: "4 4"
+        radius: CFG.blurRadiusM || 100, color: colour, weight: 1.5,
+        fillOpacity: 0.12, dashArray: "4 4"
       }).addTo(baseLayer).bindPopup("Somewhere in this area.");
     } else {
       L.marker([CFG.lat, CFG.lng], { icon: U.pinIcon(colour, "pin-icon--" + shape) })

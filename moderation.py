@@ -15,8 +15,8 @@ from flask_login import current_user
 from auth import admin_required, moderator_required
 from extensions import db
 from models import (
-    ROLE_ADMIN, ROLE_MODERATOR, ROLE_USER, ContactMessage, Pet, Sighting, User,
-    _offset_m,
+    ROLE_ADMIN, ROLE_MODERATOR, ROLE_USER, ContactMessage, Pet, SearchTrack,
+    Sighting, User, _offset_m,
 )
 from services.localtime import now_utc
 
@@ -99,6 +99,7 @@ def restore_sighting(sighting_id: int):
     sighting.is_removed = False
     sighting.removed_at = None
     sighting.removed_by_id = None
+    sighting.removed_reason = None
     db.session.commit()
     flash("Sighting restored.", "success")
     return redirect(request.referrer or url_for("moderation.queue", view="sightings"))
@@ -142,18 +143,33 @@ def unban_user(user_id: int):
 @moderation_bp.route("/user/<int:user_id>/remove_reports", methods=["POST"])
 @moderator_required
 def remove_user_reports(user_id: int):
-    """Bulk-remove everything one account posted — the spam-cleanup button."""
+    """Bulk-remove everything one account posted — the spam-cleanup button.
+
+    Everything means reports, sightings and search tracks. It used to be
+    reports only, which left a spammer's standalone sightings on the main map
+    after the button that promised to remove "all" had been pressed — and a
+    standalone sighting needs no report, so it is the cheapest thing to spam.
+    """
     user = _target(user_id)
     reason = (request.form.get("reason") or "").strip()[:500] or "Bulk removal by a moderator."
-    count = 0
-    for pet in Pet.query.filter_by(user_id=user.id, is_removed=False).all():
-        pet.is_removed = True
-        pet.removed_at = now_utc()
-        pet.removed_by_id = current_user.id
-        pet.removed_reason = reason
-        count += 1
+    when = now_utc()
+
+    def take_down(rows) -> int:
+        n = 0
+        for row in rows:
+            row.is_removed = True
+            row.removed_at = when
+            row.removed_by_id = current_user.id
+            row.removed_reason = reason
+            n += 1
+        return n
+
+    pets = take_down(Pet.query.filter_by(user_id=user.id, is_removed=False).all())
+    sightings = take_down(Sighting.query.filter_by(user_id=user.id, is_removed=False).all())
+    tracks = take_down(SearchTrack.query.filter_by(user_id=user.id, is_removed=False).all())
     db.session.commit()
-    flash(f"Removed {count} report(s) from {user.email}.", "info")
+    flash(f"Removed {pets} report(s), {sightings} sighting(s) and {tracks} search "
+          f"track(s) from {user.email}.", "info")
     return redirect(request.referrer or url_for("moderation.queue", view="users"))
 
 
