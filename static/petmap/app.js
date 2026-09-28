@@ -81,9 +81,13 @@
 window.PetMapUtil = (function () {
   "use strict";
 
+  // CARTO stamps keyless tiles "API KEY REQUIRED"; base.html carries the key.
+  var cartoKey = document.querySelector('meta[name="carto-key"]');
+  var KEY_QUERY = cartoKey && cartoKey.getAttribute("content")
+    ? "?key=" + encodeURIComponent(cartoKey.getAttribute("content")) : "";
   var BASEMAPS = {
-    light: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
-    dark: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+    light: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" + KEY_QUERY,
+    dark: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" + KEY_QUERY
   };
 
   function themeName() {

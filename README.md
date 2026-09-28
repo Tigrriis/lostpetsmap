@@ -113,6 +113,7 @@ dashboard (they are all marked `sync: false`, so nothing secret is in the repo):
 | `SECRET_KEY` | auto-generated | — |
 | `DATABASE_URL` | from the blueprint | — |
 | `GOOGLE_MAPS_API_KEY` | optional | The address box says so; the pin still works. |
+| `CARTO_BASEMAPS_KEY` | **yes** | Every map tile is stamped "API KEY REQUIRED". Free from carto.com/basemaps/apikey; it appears in tile URLs, so it isn't a secret. |
 | `RESEND_API_KEY` | **yes, in practice** | Password resets, sighting alerts, the contact relay and email verification all go to the log instead of the user — and the verification gate switches itself off, since nobody could pass it. |
 | `MAIL_FROM` | with Resend | Must be on a domain verified in Resend. |
 

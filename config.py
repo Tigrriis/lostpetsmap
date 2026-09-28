@@ -51,6 +51,12 @@ class Config:
     GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
     GEOCODE_SUFFIX = ", Tasmania, Australia"
 
+    # ── Basemap tiles ──────────────────────────────────────────────────────
+    # CARTO has required a key since 2026-09-23; without one every tile comes
+    # back stamped "API KEY REQUIRED". The key rides in each tile URL, so it
+    # is public by design — unlike the keys above, it is not a secret.
+    CARTO_BASEMAPS_KEY = os.environ.get("CARTO_BASEMAPS_KEY", "")
+
     # ── Map extent ─────────────────────────────────────────────────────────
     # Tasmania, with a little water around it. The map opens here and pins
     # cannot be dropped outside it — a report in Queensland is a mistake, not

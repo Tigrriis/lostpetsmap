@@ -6,6 +6,7 @@
   <title>{% block title %}{{ SITE_NAME }}{% endblock %}</title>
   <meta name="description" content="{% block description %}A public map of lost and found pets across Tasmania. Post a missing pet, log a sighting, help get them home.{% endblock %}">
   <meta name="csrf-token" content="{{ csrf_token() }}">
+  <meta name="carto-key" content="{{ config.CARTO_BASEMAPS_KEY }}">
   <script>
     // Apply the saved theme before first paint to avoid a flash of the wrong one.
     (function () {
