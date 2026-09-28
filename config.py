@@ -21,6 +21,11 @@ def _database_url() -> str:
     # Render exposes 'postgres://', SQLAlchemy needs 'postgresql://'
     if url.startswith("postgres://"):
         url = url.replace("postgres://", "postgresql://", 1)
+    # Name the driver: SQLAlchemy 2.1 made a bare 'postgresql://' mean psycopg
+    # 3, but requirements.txt installs psycopg2, so an unpinned SQLAlchemy
+    # upgrade crashed the app at startup.
+    if url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
     return url
 
 
