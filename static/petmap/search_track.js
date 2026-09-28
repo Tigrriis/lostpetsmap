@@ -23,20 +23,44 @@
   var U = window.PetMapUtil;
 
   var FLUSH_MS = 30000;         // batch uploads; see the note above
-  var MIN_MOVE_M = 5;           // ignore GPS jitter while standing still
+
+  // Accuracy gates, in metres, against the radius the phone reports per fix.
+  // A phone's first fixes come from Wi-Fi and cell towers and can be hundreds
+  // of metres out, so the line waits for a real lock before it starts...
+  var LOCK_M = 30;
+  var LOCK_WAIT_MS = 60000;     // ...but after a minute, starts with anything usable
   // 50 m was too strict: an 11-minute walk under cover came back with two
   // usable fixes, which was enough to measure a distance and not enough to
-  // draw. A consumer phone routinely reports 30-80 m in a suburb.
+  // draw. A consumer phone routinely reports 30-80 m in a suburb. The
+  // smoothing below gives those rough fixes little weight rather than none.
   var MAX_ACCURACY_M = 120;     // discard only wildly imprecise fixes
+  // With "Precise Location" off the browser only gets a position fuzzed to a
+  // few kilometres and updated rarely. Nothing drawable comes of that, and the
+  // fix is a phone setting, so say which one.
+  var APPROX_M = 1000;
+  var STALL_S = 20;             // silence this long means GPS has stopped; say so
+
+  // Log a point once the smoothed position has moved past its own
+  // uncertainty: at least MIN_MOVE_M (standing-still jitter), at most
+  // MAX_STEP_M (so a rough patch still draws).
+  var MIN_MOVE_M = 5;
+  var MAX_STEP_M = 20;
+
+  // How fast the searcher plausibly moves, in m/s. `noise` is how quickly the
+  // smoothing lets the estimate drift between fixes; `max` rejects a fix that
+  // would need more than that to reach (typically a Wi-Fi fix hundreds of
+  // metres out that still claims ±20 m). Three rejections in a row means the
+  // estimate was the thing that was wrong, so it restarts from the fixes.
+  var MOTION = { on_foot: { noise: 3, max: 8 }, vehicle: { noise: 15, max: 45 } };
+  var JUMPS_BEFORE_RESET = 3;
   var STORE_KEY = "petmap-track-" + CFG.petId;
   var TRIM_M = CFG.trimM || 50; // quoted in the safety prompt; server decides it
 
-  var state = null;             // {trackId, startedAt, buffer[], sent, distance}
+  var state = null;             // {trackId, startedAt, source, buffer[], sent, distance, last}
   var watchId = null;
   var wakeLock = null;
   var flushTimer = null;
   var tickTimer = null;
-  var lastFix = null;
   var liveLine = null;
 
   var el = {
@@ -50,6 +74,7 @@
     time: document.getElementById("live-time"),
     distance: document.getElementById("live-distance"),
     points: document.getElementById("live-points"),
+    accuracy: document.getElementById("live-accuracy"),
     status: document.getElementById("live-status")
   };
   if (!el.start) return;
@@ -74,6 +99,37 @@
     var h = Math.sin(dp / 2) * Math.sin(dp / 2) +
             Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) * Math.sin(dl / 2);
     return 2 * R * Math.asin(Math.sqrt(h));
+  }
+
+  // ---------- Smoothing ----------
+  // A minimal Kalman filter over lat/lng, weighted by each fix's reported
+  // accuracy: a ±5 m fix moves the estimate nearly all the way, a ±100 m
+  // fix barely nudges it. Its uncertainty grows between fixes at the
+  // searcher's plausible speed, so after a gap the next fix counts for more.
+  // Not persisted: a resumed search waits for a fresh lock rather than trust
+  // an estimate from before the page was suspended.
+
+  var est = null;               // {lat, lng, variance (m^2), t (ms)}
+
+  function smooth(point, acc, t, noise) {
+    if (!est) {
+      est = { lat: point[0], lng: point[1], variance: acc * acc, t: t };
+      return est;
+    }
+    est.variance += Math.max(0, t - est.t) / 1000 * noise * noise;
+    est.t = t;
+    var k = est.variance / (est.variance + acc * acc);
+    est.lat += k * (point[0] - est.lat);
+    est.lng += k * (point[1] - est.lng);
+    est.variance *= 1 - k;
+    return est;
+  }
+
+  function implausibleJump(point, acc, t, maxSpeed) {
+    if (!est) return false;
+    var secs = Math.max(1, (t - est.t) / 1000);
+    return metresBetween([est.lat, est.lng], point) >
+           maxSpeed * secs + acc + Math.sqrt(est.variance);
   }
 
   // ---------- Server ----------
@@ -142,6 +198,14 @@
     el.time.textContent = mins + ":" + String(secs % 60).padStart(2, "0");
     el.distance.textContent = Math.round(state.distance);
     el.points.textContent = state.sent + state.buffer.length;
+    // A browser gives no event when GPS stops (screen locked, tab in the
+    // background, phone in a pocket), so silence is the only signal.
+    // lastFixAt is 0 after a permission error, whose own message must stay.
+    var silent = lastFixAt ? Math.floor((Date.now() - lastFixAt) / 1000) : 0;
+    if (silent >= STALL_S) {
+      status("No GPS update for " + silent + " s. Keep this screen on and this " +
+             "page in front, or nothing is recorded.", true);
+    }
   }
 
   function showLive(on) {
@@ -154,7 +218,8 @@
   function resetLocal() {
     stopWatching();
     clearStored();
-    state = null; lastFix = null;
+    state = null;
+    forgetGps();
     if (liveLine && window.PM_detailMap) {
       window.PM_detailMap.removeLayer(liveLine); liveLine = null;
     }
@@ -189,46 +254,103 @@
   // ---------- Recording ----------
 
   var discarded = 0;
+  var jumps = 0;
+  var lastFixAt = 0;            // any fix, used or not; drives the stall warning
+  var waitingSince = null;      // when the wait for a first lock began
+  var bestWaiting = Infinity;   // best accuracy seen during that wait
+
+  function forgetGps() {
+    est = null;
+    if (el.accuracy) el.accuracy.textContent = "–";
+    discarded = 0; jumps = 0;
+    waitingSince = null; bestWaiting = Infinity;
+  }
+
+  function motion() {
+    return MOTION[state.source] || MOTION.on_foot;
+  }
+
+  // Still waiting for a lock: report what the phone is managing, and whether
+  // it is a signal problem (move into the open) or a settings one.
+  function waitingStatus(acc, waited) {
+    if (bestWaiting >= APPROX_M && waited >= 15000) {
+      status("Your phone is only sharing an approximate location (±" +
+             Math.round(bestWaiting) + " m), which can't draw a search. Turn on " +
+             "Precise Location for this browser. iPhone: Settings → Privacy & " +
+             "Security → Location Services → Safari Websites (or Chrome). " +
+             "Android: Chrome → Settings → Site settings → Location.", true);
+    } else if (waited >= LOCK_WAIT_MS) {
+      status("Still no usable GPS fix (best ±" + Math.round(bestWaiting) +
+             " m). Move away from buildings and heavy tree cover.", true);
+    } else {
+      status("Waiting for a GPS lock: ±" + Math.round(acc) + " m now, want ±" +
+             LOCK_M + " m. Open sky helps.");
+    }
+  }
 
   function onFix(pos) {
     if (!state) return;
     var c = pos.coords;
-    // Accept the first fix whatever its accuracy, so a search under tree cover
-    // records *something* rather than nothing. After that, hold the line — but
-    // say how many are being dropped, because a silent counter that never moves
-    // looks identical to a working recording.
-    if (c.accuracy && c.accuracy > MAX_ACCURACY_M && state.buffer.length + state.sent > 0) {
+    var now = Date.now();
+    var acc = Math.max(c.accuracy || MAX_ACCURACY_M, 1);
+    var point = [c.latitude, c.longitude];
+    lastFixAt = now;
+    if (el.accuracy) el.accuracy.textContent = Math.round(acc);
+
+    if (!est) {
+      if (waitingSince === null) waitingSince = now;
+      bestWaiting = Math.min(bestWaiting, acc);
+      var waited = now - waitingSince;
+      if (acc > LOCK_M && !(waited >= LOCK_WAIT_MS && acc <= MAX_ACCURACY_M)) {
+        waitingStatus(acc, waited);
+        return;
+      }
+      waitingSince = null; bestWaiting = Infinity;
+    } else if (acc > MAX_ACCURACY_M) {
+      // Hold the line, but say how many are being dropped, because a silent
+      // counter that never moves looks identical to a working recording.
       discarded++;
-      status("Weak GPS (±" + Math.round(c.accuracy) + " m) — " + discarded +
+      status("Weak GPS (±" + Math.round(acc) + " m): " + discarded +
              " fix" + (discarded === 1 ? "" : "es") + " skipped so far. Still trying.");
       return;
+    } else if (implausibleJump(point, acc, now, motion().max)) {
+      if (++jumps < JUMPS_BEFORE_RESET) {
+        status("Ignored a GPS jump that would mean moving impossibly fast.");
+        return;
+      }
+      est = null;               // the fixes agree with each other, not with us
     }
-    var point = [c.latitude, c.longitude];
-    if (lastFix) {
-      var moved = metresBetween(lastFix, point);
-      if (moved < MIN_MOVE_M) return;          // standing still; don't log jitter
+    jumps = 0;
+    status("Recording. Keep this screen open.");
+
+    var e = smooth(point, acc, now, motion().noise);
+    var here = [e.lat, e.lng];
+    if (state.last) {
+      var moved = metresBetween(state.last, here);
+      var step = Math.min(Math.max(MIN_MOVE_M, Math.sqrt(e.variance)), MAX_STEP_M);
+      if (moved < step) return;             // not clearly moved yet
       state.distance += moved;
     }
-    lastFix = point;
+    state.last = here;
 
     state.buffer.push([
-      Number(c.latitude.toFixed(6)),
-      Number(c.longitude.toFixed(6)),
-      Math.floor(Date.now() / 1000)
+      Number(here[0].toFixed(6)),
+      Number(here[1].toFixed(6)),
+      Math.floor(now / 1000)
     ]);
     save();
     tick();
-    status("Recording. Keep this screen open.");
 
-    if (liveLine) liveLine.addLatLng(point);
+    if (liveLine) liveLine.addLatLng(here);
     else if (window.PM_detailMap) {
-      liveLine = L.polyline([point], { color: U.colours.live(), weight: 4, opacity: 0.8,
-                                       dashArray: "6 4" }).addTo(window.PM_detailMap);
+      liveLine = L.polyline([here], { color: U.colours.live(), weight: 4, opacity: 0.8,
+                                      dashArray: "6 4" }).addTo(window.PM_detailMap);
     }
   }
 
   function onFixError(err) {
     if (err.code === err.PERMISSION_DENIED) {
+      lastFixAt = 0;            // keep this message; the stall warning would bury it
       status("Location permission denied — nothing is being recorded.", true);
     } else {
       status("Can't get a GPS fix right now. Still trying.", true);
@@ -236,9 +358,11 @@
   }
 
   function beginWatching() {
+    // maximumAge 0: a fresh reading every time, never a cached position.
     watchId = navigator.geolocation.watchPosition(onFix, onFixError, {
-      enableHighAccuracy: true, maximumAge: 5000, timeout: 20000
+      enableHighAccuracy: true, maximumAge: 0, timeout: 20000
     });
+    lastFixAt = Date.now();     // a phone that never answers also reads as stalled
     flushTimer = setInterval(flush, FLUSH_MS);
     tickTimer = setInterval(tick, 1000);
     acquireWakeLock();
@@ -283,10 +407,11 @@
     }
     if (!safetyAcknowledged()) return;
     el.start.disabled = true;
-    post(CFG.urls.start, { source: el.source ? el.source.value : "on_foot" })
+    var source = el.source ? el.source.value : "on_foot";
+    post(CFG.urls.start, { source: source })
       .then(function (data) {
-        state = { trackId: data.track_id, startedAt: Date.now(),
-                  buffer: [], sent: 0, distance: 0 };
+        state = { trackId: data.track_id, startedAt: Date.now(), source: source,
+                  buffer: [], sent: 0, distance: 0, last: null };
         save();
         showLive(true);
         status("Waiting for GPS…");
